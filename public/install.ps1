@@ -366,22 +366,48 @@ if ($isInstalled) {
 }
 Write-Host ""
 
-# Menu mode if no explicit mode
+# Menu mode - launch GUI directly with mode selection
 if ($Mode -eq "Menu") {
-    Write-Menu
-    $choice = Read-Host "  Select option"
+    # Ensure gh CLI first
+    if (-not (Install-GitHubCLI)) {
+        Write-Host "`n  Press any key to exit..." -ForegroundColor Gray
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        exit 1
+    }
     
-    switch ($choice.ToUpper()) {
-        "1" { $Mode = "Install" }
-        "2" { $Mode = "Update" }
-        "3" { $Mode = "Uninstall" }
-        "Q" { Write-Host "  Goodbye!"; exit 0 }
-        default {
-            Write-Host "  Invalid choice" -ForegroundColor Red
+    # Auth if needed for private repo
+    if ($appConfig.Private -and -not (Test-GitHubAuth)) {
+        if (-not (Invoke-GitHubAuth)) {
+            Write-Host "`n  Press any key to exit..." -ForegroundColor Gray
+            $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
             exit 1
         }
     }
-    Write-Host ""
+    
+    # Download and launch GUI in Menu mode
+    Write-Host "  Downloading installer..." -ForegroundColor Gray
+    $manifestJson = Get-GitHubFile -Repo $appConfig.Repo -Path $appConfig.ManifestPath
+    $guiScript = Get-GitHubFile -Repo $appConfig.Repo -Path "install/gui/Install-GUI.ps1"
+    
+    if (-not $manifestJson -or -not $guiScript) {
+        Write-Host "  [ERROR] Failed to download installer" -ForegroundColor Red
+        Write-Host "`n  Press any key to exit..." -ForegroundColor Gray
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        exit 1
+    }
+    
+    $tempGui = Join-Path $env:TEMP "JS-Install-GUI.ps1"
+    $tempManifest = Join-Path $env:TEMP "JS-manifest.json"
+    Set-Content -Path $tempGui -Value $guiScript -Encoding UTF8
+    Set-Content -Path $tempManifest -Value $manifestJson -Encoding UTF8
+    Write-Host "  [OK] Ready" -ForegroundColor Green
+    
+    Write-Host "`n  Launching installer..." -ForegroundColor Cyan
+    
+    $psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    & $psExe -ExecutionPolicy Bypass -NoProfile -Command "`$m = Get-Content '$tempManifest' -Raw | ConvertFrom-Json; & '$tempGui' -Manifest `$m -Repo '$($appConfig.Repo)' -Mode Menu"
+    
+    exit 0
 }
 
 # Ensure gh CLI for Install/Update
