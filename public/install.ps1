@@ -171,8 +171,10 @@ function Invoke-Install {
     # Save GUI and manifest to temp files
     $tempGui = Join-Path $env:TEMP "JS-Install-GUI.ps1"
     $tempManifest = Join-Path $env:TEMP "JS-manifest.json"
-    Set-Content -Path $tempGui -Value $guiScript -Encoding UTF8
-    Set-Content -Path $tempManifest -Value $manifestJson -Encoding UTF8
+    # Use .NET to write UTF8 without BOM (PS 5.1 Set-Content adds BOM which breaks things)
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($tempGui, $guiScript, $utf8NoBom)
+    [System.IO.File]::WriteAllText($tempManifest, $manifestJson, $utf8NoBom)
     Write-Host "  [OK] Ready" -ForegroundColor Green
     
     Write-Host "`n  Launching installer..." -ForegroundColor Cyan
@@ -410,8 +412,10 @@ if ($Mode -eq "Menu") {
     
     $tempGui = Join-Path $env:TEMP "JS-Install-GUI.ps1"
     $tempManifest = Join-Path $env:TEMP "JS-manifest.json"
-    Set-Content -Path $tempGui -Value $guiScript -Encoding UTF8
-    Set-Content -Path $tempManifest -Value $manifestJson -Encoding UTF8
+    # Use .NET to write UTF8 without BOM (PS 5.1 Set-Content adds BOM which breaks things)
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($tempGui, $guiScript, $utf8NoBom)
+    [System.IO.File]::WriteAllText($tempManifest, $manifestJson, $utf8NoBom)
     Write-Host "  [OK] Ready" -ForegroundColor Green
     
     Write-Host "`n  Launching installer..." -ForegroundColor Cyan
