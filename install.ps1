@@ -11,14 +11,7 @@ $Apps = @{
         Description = "AI-powered development assistant"
         Private = $true
         Installer = "scripts/installer/Install-GUI.ps1"
-        InstallerDeps = @(
-            "scripts/installer/setup/config.ps1",
-            "scripts/installer/setup/lib/gui-helpers.ps1",
-            "scripts/installer/setup/install-deps.ps1",
-            "scripts/installer/setup/install-devcli.ps1",
-            "scripts/installer/setup/install-vault.ps1",
-            "scripts/installer/setup/install-vscode.ps1"
-        )
+        # Install-GUI.ps1 is self-contained - handles git, gh, auth, and cloning internally
     }
 }
 
@@ -109,39 +102,23 @@ function Install-App {
             }
         }
         
-        # Create temp directory for installer files
-        $installerDir = Join-Path $env:TEMP "JulesSolutions-Installer"
-        if (Test-Path $installerDir) { Remove-Item $installerDir -Recurse -Force }
-        New-Item -ItemType Directory -Path $installerDir -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $installerDir "setup") -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $installerDir "setup\lib") -Force | Out-Null
-        
-        # Download all installer dependencies
-        Write-Host "  Downloading installer files..." -ForegroundColor Gray
-        foreach ($dep in $AppInfo.InstallerDeps) {
-            $content = Get-PrivateFile -Repo $AppInfo.Repo -Path $dep
-            if (-not $content) {
-                Write-Host "  [ERROR] Failed to download: $dep" -ForegroundColor Red
-                return $false
-            }
-            $localPath = Join-Path $installerDir ($dep -replace "scripts/installer/", "")
-            Set-Content -Path $localPath -Value $content -Encoding UTF8
-            Write-Host "    [OK] $($dep.Split('/')[-1])" -ForegroundColor DarkGray
-        }
-        
-        # Download main installer
+        # Download the GUI installer (it's self-contained)
+        Write-Host "  Downloading installer..." -ForegroundColor Gray
         $installer = Get-PrivateFile -Repo $AppInfo.Repo -Path $AppInfo.Installer
+        
         if (-not $installer) {
             Write-Host "  [ERROR] Failed to download installer" -ForegroundColor Red
             return $false
         }
-        $installerPath = Join-Path $installerDir "Install-GUI.ps1"
+        
+        $installerPath = Join-Path $env:TEMP "Install-GUI.ps1"
         Set-Content -Path $installerPath -Value $installer -Encoding UTF8
-        Write-Host "    [OK] Install-GUI.ps1" -ForegroundColor DarkGray
+        Write-Host "  [OK] Downloaded" -ForegroundColor Green
         
         # Launch the GUI installer
         Write-Host ""
         Write-Host "  Launching installer..." -ForegroundColor Cyan
+        Write-Host ""
         & $installerPath
         
     } else {
