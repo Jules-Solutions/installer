@@ -225,7 +225,7 @@ function New-InstallerXaml {
                 
                 <Border x:Name="CardInstall" Background="$($Colors.Surface)" CornerRadius="12" Padding="25,20" Margin="0,8" Cursor="Hand">
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="⬇" FontSize="28" Foreground="$($Colors.Success)" VerticalAlignment="Center" FontFamily="Segoe UI Symbol"/>
+                        <TextBlock Text="&#x2B07;" FontSize="28" Foreground="$($Colors.Success)" VerticalAlignment="Center" FontFamily="Segoe UI Symbol"/>
                         <StackPanel Grid.Column="1">
                             <TextBlock Text="Install" Foreground="$($Colors.Text)" FontSize="18" FontWeight="SemiBold"/>
                             <TextBlock Text="Fresh installation of $appName" Foreground="$($Colors.SubText)" FontSize="13"/>
@@ -235,7 +235,7 @@ function New-InstallerXaml {
                 
                 <Border x:Name="CardUpdate" Background="$($Colors.Surface)" CornerRadius="12" Padding="25,20" Margin="0,8" Cursor="Hand">
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="⟳" FontSize="28" Foreground="$($Colors.Warning)" VerticalAlignment="Center" FontFamily="Segoe UI Symbol"/>
+                        <TextBlock Text="&#x21BB;" FontSize="28" Foreground="$($Colors.Warning)" VerticalAlignment="Center" FontFamily="Segoe UI Symbol"/>
                         <StackPanel Grid.Column="1">
                             <TextBlock Text="Update" Foreground="$($Colors.Text)" FontSize="18" FontWeight="SemiBold"/>
                             <TextBlock Text="Get latest features and fixes" Foreground="$($Colors.SubText)" FontSize="13"/>
@@ -245,7 +245,7 @@ function New-InstallerXaml {
                 
                 <Border x:Name="CardUninstall" Background="$($Colors.Surface)" CornerRadius="12" Padding="25,20" Margin="0,8" Cursor="Hand">
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="✕" FontSize="28" Foreground="$($Colors.Error)" VerticalAlignment="Center" FontFamily="Segoe UI Symbol"/>
+                        <TextBlock Text="&#x2715;" FontSize="28" Foreground="$($Colors.Error)" VerticalAlignment="Center" FontFamily="Segoe UI Symbol"/>
                         <StackPanel Grid.Column="1">
                             <TextBlock Text="Uninstall" Foreground="$($Colors.Text)" FontSize="18" FontWeight="SemiBold"/>
                             <TextBlock Text="Remove $appName (choose what to keep)" Foreground="$($Colors.SubText)" FontSize="13"/>
