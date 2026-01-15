@@ -188,7 +188,9 @@ function Invoke-Install {
     
     # Download GUI installer
     Write-Host "`n  Downloading installer..." -ForegroundColor Gray
-    $guiScript = Get-GitHubFile -Repo $AppConfig.Repo -Path "install/gui/Install-GUI.ps1"
+    # Always use the universal GUI from the public installer repo.
+    # App repos provide only manifest + step scripts.
+    $guiScript = Get-GitHubFile -Repo "Jules-Solutions/installer" -Path "src/gui/Install-GUI.ps1"
     
     if (-not $guiScript) {
         Write-Host "  [ERROR] Failed to download installer" -ForegroundColor Red
