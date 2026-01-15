@@ -86,6 +86,34 @@ function Ensure-Git {
         throw "Git is required but winget was not found. Install Git manually (https://git-scm.com/download/win) and rerun."
     }
 
+    function Install-GitForWindowsCurrentUser {
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        }
+        catch {
+            # ignore
+        }
+
+        $apiUrl = 'https://api.github.com/repos/git-for-windows/git/releases/latest'
+        $headers = @{ 'User-Agent' = 'Jules.Solutions-Installer' }
+
+        Write-Log "  Downloading Git for Windows (current user)..."
+        $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+        $asset = $release.assets | Where-Object { $_.name -match '^Git-.*-64-bit\.exe$' } | Select-Object -First 1
+        if (-not $asset) {
+            throw "Could not find Git-*-64-bit.exe in latest Git for Windows release assets."
+        }
+
+        $tempExe = Join-Path $env:TEMP $asset.name
+        Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $tempExe -UseBasicParsing -ErrorAction Stop
+
+        $args = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER')
+        $proc = Start-Process -FilePath $tempExe -ArgumentList $args -Wait -PassThru -ErrorAction Stop
+        if ($proc.ExitCode -ne 0) {
+            throw "Git installer exited with code $($proc.ExitCode)."
+        }
+    }
+
     $wingetUserArgs = @(
         'install',
         '--id', 'Git.Git',
@@ -97,7 +125,7 @@ function Ensure-Git {
         '--exact'
     )
 
-    Write-Log "  Installing Git (user scope)..."
+    Write-Log "  Installing Git (user scope via winget)..."
     $out = & winget @wingetUserArgs 2>&1 | ForEach-Object { "$_" }
     $exit = $LASTEXITCODE
     $out | ForEach-Object { Write-Log "    $_" }
@@ -107,32 +135,11 @@ function Ensure-Git {
         $looksLikeElevation = ($combined -match '(?i)administrator|requires elevation|run as administrator|uac|prompt expected|ausf.*hrung als administrator|administrator an')
 
         if ($exit -eq 4 -or $looksLikeElevation) {
-            Write-Log "  Git install needs Administrator rights; requesting elevation..."
-
-            $wingetMachineArgs = @(
-                'install',
-                '--id', 'Git.Git',
-                '--source', 'winget',
-                '--accept-source-agreements',
-                '--accept-package-agreements',
-                '--silent',
-                '--scope', 'machine',
-                '--exact'
-            )
-
-            try {
-                $wingetExe = (Get-Command winget -ErrorAction Stop).Source
-                $proc = Start-Process -FilePath $wingetExe -ArgumentList $wingetMachineArgs -Verb RunAs -Wait -PassThru -ErrorAction Stop
-                if ($proc.ExitCode -ne 0) {
-                    throw "Elevated winget install failed (exit code: $($proc.ExitCode))."
-                }
-            }
-            catch {
-                throw "Git installation requires Administrator rights. Please approve the UAC prompt (or rerun the installer as Administrator). Details: $_"
-            }
+            Write-Log "  winget indicates Git needs elevation; falling back to per-user installer..."
+            Install-GitForWindowsCurrentUser
         }
         else {
-            throw "Git installation failed (exit code: $exit)."
+            throw "Git installation failed (winget exit code: $exit)."
         }
     }
 
@@ -892,6 +899,34 @@ function Start-Installation {
                 throw "Git is required but winget was not found. Install Git manually (https://git-scm.com/download/win) and rerun."
             }
 
+            function Install-GitForWindowsCurrentUser {
+                try {
+                    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                }
+                catch {
+                    # ignore
+                }
+
+                $apiUrl = 'https://api.github.com/repos/git-for-windows/git/releases/latest'
+                $headers = @{ 'User-Agent' = 'Jules.Solutions-Installer' }
+
+                Write-Log "  Downloading Git for Windows (current user)..."
+                $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+                $asset = $release.assets | Where-Object { $_.name -match '^Git-.*-64-bit\.exe$' } | Select-Object -First 1
+                if (-not $asset) {
+                    throw "Could not find Git-*-64-bit.exe in latest Git for Windows release assets."
+                }
+
+                $tempExe = Join-Path $env:TEMP $asset.name
+                Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $tempExe -UseBasicParsing -ErrorAction Stop
+
+                $args = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER')
+                $proc = Start-Process -FilePath $tempExe -ArgumentList $args -Wait -PassThru -ErrorAction Stop
+                if ($proc.ExitCode -ne 0) {
+                    throw "Git installer exited with code $($proc.ExitCode)."
+                }
+            }
+
             $wingetUserArgs = @(
                 'install',
                 '--id', 'Git.Git',
@@ -903,7 +938,7 @@ function Start-Installation {
                 '--exact'
             )
 
-            Write-Log "  Installing Git (user scope)..."
+            Write-Log "  Installing Git (user scope via winget)..."
             $out = & winget @wingetUserArgs 2>&1 | ForEach-Object { "$_" }
             $exit = $LASTEXITCODE
             $out | ForEach-Object { Write-Log "    $_" }
@@ -913,32 +948,11 @@ function Start-Installation {
                 $looksLikeElevation = ($combined -match '(?i)administrator|requires elevation|run as administrator|uac|prompt expected|ausf.*hrung als administrator|administrator an')
 
                 if ($exit -eq 4 -or $looksLikeElevation) {
-                    Write-Log "  Git install needs Administrator rights; requesting elevation..."
-
-                    $wingetMachineArgs = @(
-                        'install',
-                        '--id', 'Git.Git',
-                        '--source', 'winget',
-                        '--accept-source-agreements',
-                        '--accept-package-agreements',
-                        '--silent',
-                        '--scope', 'machine',
-                        '--exact'
-                    )
-
-                    try {
-                        $wingetExe = (Get-Command winget -ErrorAction Stop).Source
-                        $proc = Start-Process -FilePath $wingetExe -ArgumentList $wingetMachineArgs -Verb RunAs -Wait -PassThru -ErrorAction Stop
-                        if ($proc.ExitCode -ne 0) {
-                            throw "Elevated winget install failed (exit code: $($proc.ExitCode))."
-                        }
-                    }
-                    catch {
-                        throw "Git installation requires Administrator rights. Please approve the UAC prompt (or rerun the installer as Administrator). Details: $_"
-                    }
+                    Write-Log "  winget indicates Git needs elevation; falling back to per-user installer..."
+                    Install-GitForWindowsCurrentUser
                 }
                 else {
-                    throw "Git installation failed (exit code: $exit)."
+                    throw "Git installation failed (winget exit code: $exit)."
                 }
             }
 
