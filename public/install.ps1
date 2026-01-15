@@ -85,6 +85,33 @@ function Install-GitHubCLI {
     return $false
 }
 
+function Install-Git {
+    Write-Host "  Checking Git..." -ForegroundColor Gray
+
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        Write-Host "  [OK] Git available" -ForegroundColor Green
+        return $true
+    }
+
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Host "  [ERROR] Git is required but winget not found" -ForegroundColor Red
+        Write-Host "  Install Git manually: https://git-scm.com/download/win" -ForegroundColor Gray
+        return $false
+    }
+
+    Write-Host "  Installing Git..." -ForegroundColor Yellow
+    $null = winget install --id Git.Git --source winget --accept-source-agreements --accept-package-agreements --silent --scope user 2>&1
+    $env:PATH = [Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('PATH', 'User')
+
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        Write-Host "  [OK] Git installed" -ForegroundColor Green
+        return $true
+    }
+
+    Write-Host "  [ERROR] Git installation failed" -ForegroundColor Red
+    return $false
+}
+
 function Test-GitHubAuth {
     $null = gh auth status 2>&1
     return $LASTEXITCODE -eq 0
@@ -203,6 +230,10 @@ function Invoke-Update {
     
     # Pull latest from repo
     Write-Host "`n  Updating from GitHub..." -ForegroundColor Yellow
+
+    if (-not (Install-Git)) {
+        return $false
+    }
     
     Push-Location $AppConfig.InstallPath
     try {

@@ -65,6 +65,55 @@ function Escape-XamlText {
 }
 
 # ============================================================================
+# TOOLING HELPERS
+# ============================================================================
+function Test-Command {
+    param([Parameter(Mandatory)] [string]$Name)
+    return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Refresh-Path {
+    $env:PATH = [Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+               [Environment]::GetEnvironmentVariable('PATH', 'User')
+}
+
+function Ensure-Git {
+    if (Test-Command 'git') {
+        return
+    }
+
+    if (-not (Test-Command 'winget')) {
+        throw "Git is required but winget was not found. Install Git manually (https://git-scm.com/download/win) and rerun."
+    }
+
+    Write-Log "  Installing Git..."
+    $out = winget install --id Git.Git --source winget --accept-source-agreements --accept-package-agreements --silent --scope user 2>&1
+    $out | ForEach-Object { Write-Log "    $_" }
+
+    Refresh-Path
+
+    if (-not (Test-Command 'git')) {
+        # Git might be installed but not on PATH in this session.
+        $candidatePaths = @(
+            "$env:ProgramFiles\Git\cmd",
+            "$env:ProgramFiles\Git\bin",
+            "$env:LocalAppData\Programs\Git\cmd",
+            "$env:LocalAppData\Programs\Git\bin"
+        )
+        foreach ($p in $candidatePaths) {
+            if (Test-Path (Join-Path $p 'git.exe')) {
+                $env:PATH = "$p;" + $env:PATH
+                break
+            }
+        }
+    }
+
+    if (-not (Test-Command 'git')) {
+        throw "Git installation completed but 'git' is still not available. Close and reopen the installer (or open a new terminal) and retry."
+    }
+}
+
+# ============================================================================
 # XAML GENERATION
 # ============================================================================
 function New-InstallerXaml {
@@ -838,6 +887,9 @@ function Start-Installation {
             # Clone/update repo first
             Update-Progress 5 "Preparing repository..."
             Write-Log "[0/$totalSteps] Cloning $Repo..."
+
+            # Git is required for updates (and gh repo clone uses git under the hood)
+            Ensure-Git
             
             if (-not (Test-Path $appsPath)) {
                 New-Item -ItemType Directory -Path $appsPath -Force | Out-Null
