@@ -368,11 +368,13 @@ Write-Host ""
 
 # Menu mode - launch GUI directly with mode selection
 if ($Mode -eq "Menu") {
-    # Download GUI from PUBLIC installer repo (no auth needed)
+    # Download GUI from PUBLIC installer repo via API (bypasses CDN cache)
     Write-Host "  Downloading installer..." -ForegroundColor Gray
-    $guiUrl = "https://raw.githubusercontent.com/Jules-Solutions/installer/master/src/gui/Install-GUI.ps1"
     try {
-        $guiScript = Invoke-RestMethod -Uri $guiUrl -UseBasicParsing
+        # Use GitHub API to get file content (avoids raw.githubusercontent.com 5-min cache)
+        $apiUrl = "https://api.github.com/repos/Jules-Solutions/installer/contents/src/gui/Install-GUI.ps1"
+        $response = Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -Headers @{ Accept = "application/vnd.github.v3+json" }
+        $guiScript = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($response.content))
     } catch {
         Write-Host "  [ERROR] Failed to download GUI: $_" -ForegroundColor Red
         Write-Host "`n  Press any key to exit..." -ForegroundColor Gray
