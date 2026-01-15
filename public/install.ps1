@@ -156,5 +156,6 @@ Write-Host "  [OK] Ready" -ForegroundColor Green
 Write-Host "`n  Launching installer..." -ForegroundColor Cyan
 Write-Host ""
 
-# Run GUI with manifest
-& powershell -ExecutionPolicy Bypass -NoProfile -Command "& '$tempGui' -Manifest (`$args[0] | ConvertFrom-Json) -Repo '$($app.Repo)'" -Args $manifestJson
+# Run GUI with manifest (use Windows PowerShell for WPF)
+$psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+& $psExe -ExecutionPolicy Bypass -NoProfile -Command "& '$tempGui' -Manifest (`$args[0] | ConvertFrom-Json) -Repo '$($app.Repo)'" -Args $manifestJson
