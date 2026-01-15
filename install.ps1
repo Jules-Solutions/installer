@@ -10,15 +10,16 @@ $Apps = @{
         Repo = "Jul352mf/DevCLI"
         Description = "AI-powered development assistant"
         Private = $true
-        Bootstrap = "scripts/installer/bootstrap.ps1"
+        Installer = "scripts/installer/Install-GUI.ps1"
+        InstallerDeps = @(
+            "scripts/installer/setup/config.ps1",
+            "scripts/installer/setup/lib/gui-helpers.ps1",
+            "scripts/installer/setup/install-deps.ps1",
+            "scripts/installer/setup/install-devcli.ps1",
+            "scripts/installer/setup/install-vault.ps1",
+            "scripts/installer/setup/install-vscode.ps1"
+        )
     }
-    # Future apps go here:
-    # "SomePublicApp" = @{
-    #     Repo = "Jules-Solutions/SomeApp"
-    #     Description = "Some public app"
-    #     Private = $false
-    #     Bootstrap = "install.ps1"
-    # }
 }
 
 function Write-Banner {
@@ -108,26 +109,48 @@ function Install-App {
             }
         }
         
-        # Download bootstrap script via gh API
-        Write-Host "  Downloading installer..." -ForegroundColor Gray
-        $script = Get-PrivateFile -Repo $AppInfo.Repo -Path $AppInfo.Bootstrap
+        # Create temp directory for installer files
+        $installerDir = Join-Path $env:TEMP "JulesSolutions-Installer"
+        if (Test-Path $installerDir) { Remove-Item $installerDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $installerDir -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $installerDir "setup") -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $installerDir "setup\lib") -Force | Out-Null
         
-        if (-not $script) {
+        # Download all installer dependencies
+        Write-Host "  Downloading installer files..." -ForegroundColor Gray
+        foreach ($dep in $AppInfo.InstallerDeps) {
+            $content = Get-PrivateFile -Repo $AppInfo.Repo -Path $dep
+            if (-not $content) {
+                Write-Host "  [ERROR] Failed to download: $dep" -ForegroundColor Red
+                return $false
+            }
+            $localPath = Join-Path $installerDir ($dep -replace "scripts/installer/", "")
+            Set-Content -Path $localPath -Value $content -Encoding UTF8
+            Write-Host "    [OK] $($dep.Split('/')[-1])" -ForegroundColor DarkGray
+        }
+        
+        # Download main installer
+        $installer = Get-PrivateFile -Repo $AppInfo.Repo -Path $AppInfo.Installer
+        if (-not $installer) {
             Write-Host "  [ERROR] Failed to download installer" -ForegroundColor Red
             return $false
         }
+        $installerPath = Join-Path $installerDir "Install-GUI.ps1"
+        Set-Content -Path $installerPath -Value $installer -Encoding UTF8
+        Write-Host "    [OK] Install-GUI.ps1" -ForegroundColor DarkGray
         
-        # Save and execute
-        $tempScript = Join-Path $env:TEMP "bootstrap-$AppName.ps1"
-        Set-Content -Path $tempScript -Value $script -Encoding UTF8
-        
-        Write-Host "  Running installer..." -ForegroundColor Gray
-        & $tempScript
+        # Launch the GUI installer
+        Write-Host ""
+        Write-Host "  Launching installer..." -ForegroundColor Cyan
+        & $installerPath
         
     } else {
-        # Public app - direct download
-        $url = "https://raw.githubusercontent.com/$($AppInfo.Repo)/main/$($AppInfo.Bootstrap)"
-        Invoke-Expression (Invoke-RestMethod $url)
+        # Public app - direct download and run
+        $url = "https://raw.githubusercontent.com/$($AppInfo.Repo)/main/$($AppInfo.Installer)"
+        $installer = Invoke-RestMethod $url
+        $tempPath = Join-Path $env:TEMP "Install-$AppName.ps1"
+        Set-Content -Path $tempPath -Value $installer -Encoding UTF8
+        & $tempPath
     }
     
     return $true
@@ -153,11 +176,6 @@ if ($Apps[$selectedApp].Private) {
 $success = Install-App -AppName $selectedApp -AppInfo $Apps[$selectedApp]
 
 if ($success) {
-    Write-Host ""
-    Write-Host "  ============================================" -ForegroundColor Green
-    Write-Host "      Installation Complete!" -ForegroundColor Green
-    Write-Host "  ============================================" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "  Run 'devcli' from any terminal to get started." -ForegroundColor Cyan
+    # GUI handles its own completion message
     Write-Host ""
 }
