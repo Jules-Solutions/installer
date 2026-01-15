@@ -55,13 +55,23 @@ $colors = @{
 }
 
 # ============================================================================
+# XAML HELPERS
+# ============================================================================
+# Escape special characters for XAML attribute values
+function Escape-XamlText {
+    param([string]$Text)
+    if (-not $Text) { return "" }
+    return $Text.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;').Replace('"', '&quot;')
+}
+
+# ============================================================================
 # XAML GENERATION
 # ============================================================================
 function New-InstallerXaml {
     param($Manifest, $Colors)
     
-    $appName = $Manifest.name
-    $appDesc = $Manifest.description
+    $appName = Escape-XamlText $Manifest.name
+    $appDesc = Escape-XamlText $Manifest.description
     
     # Build options UI
     $optionsXaml = Build-OptionsXaml -Options $Manifest.options -Colors $Colors
@@ -374,11 +384,13 @@ function Build-OptionsXaml {
                 $isFirst = $true
                 foreach ($choice in $opt.choices) {
                     $checked = if ($choice.value -eq $opt.default) { "True" } else { "False" }
+                    $choiceLabel = Escape-XamlText $choice.label
+                    $choiceDesc = Escape-XamlText $choice.description
                     $xaml += @"
                     <RadioButton x:Name="Opt_$($opt.id)_$($choice.value)" Style="{StaticResource InstallOption}" IsChecked="$checked" GroupName="$($opt.id)">
                         <StackPanel>
-                            <TextBlock Text="$($choice.label)" FontWeight="SemiBold"/>
-                            <TextBlock Text="$($choice.description)" Foreground="$($Colors.SubText)" FontSize="12" Margin="0,3,0,0"/>
+                            <TextBlock Text="$choiceLabel" FontWeight="SemiBold"/>
+                            <TextBlock Text="$choiceDesc" Foreground="$($Colors.SubText)" FontSize="12" Margin="0,3,0,0"/>
                         </StackPanel>
                     </RadioButton>
 "@
@@ -387,8 +399,9 @@ function Build-OptionsXaml {
             }
             "checkbox" {
                 $checked = if ($opt.default) { "True" } else { "False" }
+                $optLabel = Escape-XamlText $opt.label
                 $xaml += @"
-                <CheckBox x:Name="Opt_$($opt.id)" Content="  $($opt.label)" Foreground="$($Colors.Text)" FontSize="14" IsChecked="$checked" Margin="0,8"/>
+                <CheckBox x:Name="Opt_$($opt.id)" Content="  $optLabel" Foreground="$($Colors.Text)" FontSize="14" IsChecked="$checked" Margin="0,8"/>
 "@
             }
         }
@@ -409,11 +422,13 @@ function Build-VariablesXaml {
     $Variables.PSObject.Properties | ForEach-Object {
         $varName = $_.Name
         $varDef = $_.Value
+        $varPrompt = Escape-XamlText $varDef.prompt
+        $varDesc = Escape-XamlText $varDef.description
         
         $xaml += @"
-        <TextBlock Text="$($varDef.prompt):" Foreground="$($Colors.Text)" FontSize="14" Margin="0,0,0,8"/>
+        <TextBlock Text="$varPrompt`:" Foreground="$($Colors.Text)" FontSize="14" Margin="0,0,0,8"/>
         <TextBox x:Name="Var_$varName" Style="{StaticResource InputBox}" MaxLength="50"/>
-        <TextBlock Text="$($varDef.description)" Foreground="$($Colors.Muted)" FontSize="12" Margin="0,5,0,20"/>
+        <TextBlock Text="$varDesc" Foreground="$($Colors.Muted)" FontSize="12" Margin="0,5,0,20"/>
 "@
     }
     
@@ -453,13 +468,15 @@ function Build-UninstallXaml {
         $checked = if ($opt.default) { "True" } else { "False" }
         $textColor = if ($opt.danger) { $Colors.Error } elseif ($opt.warning) { $Colors.Warning } else { $Colors.Text }
         $descColor = if ($opt.danger) { $Colors.Error } elseif ($opt.warning) { $Colors.Warning } else { $Colors.Muted }
-        $warningPrefix = if ($opt.danger -or $opt.warning) { "⚠️ " } else { "" }
+        $warningPrefix = if ($opt.danger -or $opt.warning) { "! " } else { "" }
+        $label = Escape-XamlText $opt.label
+        $desc = Escape-XamlText $opt.description
         
         $xaml += @"
                             <CheckBox x:Name="ChkUninstall_$($opt.id)" IsChecked="$checked" Foreground="$textColor" FontSize="14" Margin="0,8">
                                 <StackPanel>
-                                    <TextBlock Text="$($opt.label)" FontWeight="SemiBold" Foreground="$textColor"/>
-                                    <TextBlock Text="$warningPrefix$($opt.description)" Foreground="$descColor" FontSize="12"/>
+                                    <TextBlock Text="$label" FontWeight="SemiBold" Foreground="$textColor"/>
+                                    <TextBlock Text="$warningPrefix$desc" Foreground="$descColor" FontSize="12"/>
                                 </StackPanel>
                             </CheckBox>
 "@
