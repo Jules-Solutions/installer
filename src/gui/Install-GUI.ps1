@@ -107,11 +107,76 @@ function Ensure-Git {
         $tempExe = Join-Path $env:TEMP $asset.name
         Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $tempExe -UseBasicParsing -ErrorAction Stop
 
-        $args = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER')
+        $logPath = Join-Path $env:TEMP ("GitForWindows-Install-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+        $installDir = Join-Path $env:LOCALAPPDATA 'Programs\Git'
+
+        $args = @(
+            '/VERYSILENT',
+            '/SUPPRESSMSGBOXES',
+            '/NORESTART',
+            '/SP-',
+            '/CURRENTUSER',
+            ("/DIR=`"$installDir`""),
+            ("/LOG=`"$logPath`"" )
+        )
+
         $proc = Start-Process -FilePath $tempExe -ArgumentList $args -Wait -PassThru -ErrorAction Stop
         if ($proc.ExitCode -ne 0) {
+            Write-Log "  Git for Windows installer log: $logPath"
             throw "Git installer exited with code $($proc.ExitCode)."
         }
+    }
+
+    function Install-PortableGitCurrentUser {
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        }
+        catch {
+            # ignore
+        }
+
+        $apiUrl = 'https://api.github.com/repos/git-for-windows/git/releases/latest'
+        $headers = @{ 'User-Agent' = 'Jules.Solutions-Installer' }
+
+        Write-Log "  Downloading PortableGit (no admin)..."
+        $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+        $asset = $release.assets | Where-Object { $_.name -match '^PortableGit-.*-64-bit\.7z\.exe$' } | Select-Object -First 1
+        if (-not $asset) {
+            throw "Could not find PortableGit-*-64-bit.7z.exe in latest Git for Windows release assets."
+        }
+
+        $tempExe = Join-Path $env:TEMP $asset.name
+        Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $tempExe -UseBasicParsing -ErrorAction Stop
+
+        $destRoot = Join-Path $env:LOCALAPPDATA 'Programs\PortableGit'
+        if (-not (Test-Path $destRoot)) {
+            New-Item -ItemType Directory -Path $destRoot -Force | Out-Null
+        }
+
+        # 7-Zip SFX extraction arguments
+        $extractArgs = @('-y', ("-o$destRoot"))
+        $proc = Start-Process -FilePath $tempExe -ArgumentList $extractArgs -Wait -PassThru -ErrorAction Stop
+        if ($proc.ExitCode -ne 0) {
+            throw "PortableGit extractor exited with code $($proc.ExitCode)."
+        }
+
+        $gitExe = $null
+        if (Test-Path (Join-Path $destRoot 'cmd\git.exe')) {
+            $gitExe = Join-Path $destRoot 'cmd\git.exe'
+        }
+        else {
+            $found = Get-ChildItem -Path $destRoot -Filter git.exe -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "\\cmd\\git\.exe$" } | Select-Object -First 1
+            if ($found) {
+                $gitExe = $found.FullName
+            }
+        }
+
+        if (-not $gitExe) {
+            throw "PortableGit extraction completed but git.exe was not found under $destRoot."
+        }
+
+        $gitCmdDir = Split-Path -Parent $gitExe
+        $env:PATH = "$gitCmdDir;" + $env:PATH
     }
 
     $wingetUserArgs = @(
@@ -136,7 +201,13 @@ function Ensure-Git {
 
         if ($exit -eq 4 -or $looksLikeElevation) {
             Write-Log "  winget indicates Git needs elevation; falling back to per-user installer..."
-            Install-GitForWindowsCurrentUser
+            try {
+                Install-GitForWindowsCurrentUser
+            }
+            catch {
+                Write-Log "  Per-user installer failed; trying PortableGit fallback..."
+                Install-PortableGitCurrentUser
+            }
         }
         else {
             throw "Git installation failed (winget exit code: $exit)."
@@ -920,11 +991,75 @@ function Start-Installation {
                 $tempExe = Join-Path $env:TEMP $asset.name
                 Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $tempExe -UseBasicParsing -ErrorAction Stop
 
-                $args = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER')
+                $logPath = Join-Path $env:TEMP ("GitForWindows-Install-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+                $installDir = Join-Path $env:LOCALAPPDATA 'Programs\Git'
+
+                $args = @(
+                    '/VERYSILENT',
+                    '/SUPPRESSMSGBOXES',
+                    '/NORESTART',
+                    '/SP-',
+                    '/CURRENTUSER',
+                    ("/DIR=`"$installDir`""),
+                    ("/LOG=`"$logPath`"" )
+                )
+
                 $proc = Start-Process -FilePath $tempExe -ArgumentList $args -Wait -PassThru -ErrorAction Stop
                 if ($proc.ExitCode -ne 0) {
+                    Write-Log "  Git for Windows installer log: $logPath"
                     throw "Git installer exited with code $($proc.ExitCode)."
                 }
+            }
+
+            function Install-PortableGitCurrentUser {
+                try {
+                    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                }
+                catch {
+                    # ignore
+                }
+
+                $apiUrl = 'https://api.github.com/repos/git-for-windows/git/releases/latest'
+                $headers = @{ 'User-Agent' = 'Jules.Solutions-Installer' }
+
+                Write-Log "  Downloading PortableGit (no admin)..."
+                $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+                $asset = $release.assets | Where-Object { $_.name -match '^PortableGit-.*-64-bit\.7z\.exe$' } | Select-Object -First 1
+                if (-not $asset) {
+                    throw "Could not find PortableGit-*-64-bit.7z.exe in latest Git for Windows release assets."
+                }
+
+                $tempExe = Join-Path $env:TEMP $asset.name
+                Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $tempExe -UseBasicParsing -ErrorAction Stop
+
+                $destRoot = Join-Path $env:LOCALAPPDATA 'Programs\PortableGit'
+                if (-not (Test-Path $destRoot)) {
+                    New-Item -ItemType Directory -Path $destRoot -Force | Out-Null
+                }
+
+                $extractArgs = @('-y', ("-o$destRoot"))
+                $proc = Start-Process -FilePath $tempExe -ArgumentList $extractArgs -Wait -PassThru -ErrorAction Stop
+                if ($proc.ExitCode -ne 0) {
+                    throw "PortableGit extractor exited with code $($proc.ExitCode)."
+                }
+
+                $gitExe = $null
+                if (Test-Path (Join-Path $destRoot 'cmd\git.exe')) {
+                    $gitExe = Join-Path $destRoot 'cmd\git.exe'
+                }
+                else {
+                    $found = Get-ChildItem -Path $destRoot -Filter git.exe -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "\\cmd\\git\.exe$" } | Select-Object -First 1
+                    if ($found) {
+                        $gitExe = $found.FullName
+                    }
+                }
+
+                if (-not $gitExe) {
+                    throw "PortableGit extraction completed but git.exe was not found under $destRoot."
+                }
+
+                $gitCmdDir = Split-Path -Parent $gitExe
+                $env:PATH = "$gitCmdDir;" + $env:PATH
             }
 
             $wingetUserArgs = @(
@@ -949,7 +1084,13 @@ function Start-Installation {
 
                 if ($exit -eq 4 -or $looksLikeElevation) {
                     Write-Log "  winget indicates Git needs elevation; falling back to per-user installer..."
-                    Install-GitForWindowsCurrentUser
+                    try {
+                        Install-GitForWindowsCurrentUser
+                    }
+                    catch {
+                        Write-Log "  Per-user installer failed; trying PortableGit fallback..."
+                        Install-PortableGitCurrentUser
+                    }
                 }
                 else {
                     throw "Git installation failed (winget exit code: $exit)."
