@@ -225,7 +225,9 @@ function New-InstallerXaml {
                 
                 <Border x:Name="CardInstall" Background="$($Colors.Surface)" CornerRadius="12" Padding="25,20" Margin="0,8" Cursor="Hand">
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="↓" FontSize="32" Foreground="$($Colors.Success)" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        <Border Width="36" Height="36" CornerRadius="18" Background="$($Colors.Success)" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <TextBlock Text="+" FontSize="24" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-2,0,0"/>
+                        </Border>
                         <StackPanel Grid.Column="1">
                             <TextBlock Text="Install" Foreground="$($Colors.Text)" FontSize="18" FontWeight="SemiBold"/>
                             <TextBlock Text="Fresh installation of $appName" Foreground="$($Colors.SubText)" FontSize="13"/>
@@ -235,7 +237,9 @@ function New-InstallerXaml {
                 
                 <Border x:Name="CardUpdate" Background="$($Colors.Surface)" CornerRadius="12" Padding="25,20" Margin="0,8" Cursor="Hand">
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="↻" FontSize="32" Foreground="$($Colors.Warning)" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        <Border Width="36" Height="36" CornerRadius="18" Background="$($Colors.Warning)" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <TextBlock Text="~" FontSize="28" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-6,0,0"/>
+                        </Border>
                         <StackPanel Grid.Column="1">
                             <TextBlock Text="Update" Foreground="$($Colors.Text)" FontSize="18" FontWeight="SemiBold"/>
                             <TextBlock Text="Get latest features and fixes" Foreground="$($Colors.SubText)" FontSize="13"/>
@@ -245,7 +249,9 @@ function New-InstallerXaml {
                 
                 <Border x:Name="CardUninstall" Background="$($Colors.Surface)" CornerRadius="12" Padding="25,20" Margin="0,8" Cursor="Hand">
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="×" FontSize="32" Foreground="$($Colors.Error)" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        <Border Width="36" Height="36" CornerRadius="18" Background="$($Colors.Error)" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <TextBlock Text="X" FontSize="20" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
                         <StackPanel Grid.Column="1">
                             <TextBlock Text="Uninstall" Foreground="$($Colors.Text)" FontSize="18" FontWeight="SemiBold"/>
                             <TextBlock Text="Remove $appName (choose what to keep)" Foreground="$($Colors.SubText)" FontSize="13"/>
