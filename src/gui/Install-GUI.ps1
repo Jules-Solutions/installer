@@ -123,6 +123,31 @@ function Ensure-Git {
         $proc = Start-Process -FilePath $tempExe -ArgumentList $args -Wait -PassThru -ErrorAction Stop
         if ($proc.ExitCode -ne 0) {
             Write-Log "  Git for Windows installer log: $logPath"
+
+            if ($proc.ExitCode -eq 4) {
+                # On some systems Git.Git requires elevation even for /CURRENTUSER.
+                Write-Log "  Git installer requires Administrator approval (UAC prompt expected)..."
+                $elevatedLogPath = Join-Path $env:TEMP ("GitForWindows-Install-Admin-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+                $machineDir = Join-Path $env:ProgramFiles 'Git'
+                $adminArgs = @(
+                    '/VERYSILENT',
+                    '/SUPPRESSMSGBOXES',
+                    '/NORESTART',
+                    '/SP-',
+                    '/ALLUSERS',
+                    ("/DIR=`"$machineDir`""),
+                    ("/LOG=`"$elevatedLogPath`"" )
+                )
+
+                $adminProc = Start-Process -FilePath $tempExe -ArgumentList $adminArgs -Verb RunAs -Wait -PassThru -ErrorAction Stop
+                if ($adminProc.ExitCode -ne 0) {
+                    Write-Log "  Git for Windows (admin) installer log: $elevatedLogPath"
+                    throw "Git installer (admin) exited with code $($adminProc.ExitCode)."
+                }
+
+                return
+            }
+
             throw "Git installer exited with code $($proc.ExitCode)."
         }
     }
@@ -1007,6 +1032,30 @@ function Start-Installation {
                 $proc = Start-Process -FilePath $tempExe -ArgumentList $args -Wait -PassThru -ErrorAction Stop
                 if ($proc.ExitCode -ne 0) {
                     Write-Log "  Git for Windows installer log: $logPath"
+
+                    if ($proc.ExitCode -eq 4) {
+                        Write-Log "  Git installer requires Administrator approval (UAC prompt expected)..."
+                        $elevatedLogPath = Join-Path $env:TEMP ("GitForWindows-Install-Admin-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+                        $machineDir = Join-Path $env:ProgramFiles 'Git'
+                        $adminArgs = @(
+                            '/VERYSILENT',
+                            '/SUPPRESSMSGBOXES',
+                            '/NORESTART',
+                            '/SP-',
+                            '/ALLUSERS',
+                            ("/DIR=`"$machineDir`""),
+                            ("/LOG=`"$elevatedLogPath`"" )
+                        )
+
+                        $adminProc = Start-Process -FilePath $tempExe -ArgumentList $adminArgs -Verb RunAs -Wait -PassThru -ErrorAction Stop
+                        if ($adminProc.ExitCode -ne 0) {
+                            Write-Log "  Git for Windows (admin) installer log: $elevatedLogPath"
+                            throw "Git installer (admin) exited with code $($adminProc.ExitCode)."
+                        }
+
+                        return
+                    }
+
                     throw "Git installer exited with code $($proc.ExitCode)."
                 }
             }
