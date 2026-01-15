@@ -1,0 +1,13 @@
+{
+  "apps": {
+    "devcli": {
+      "repo": "Jul352mf/DevCLI",
+      "manifestPath": "install/manifest.json",
+      "displayName": "DevCLI",
+      "description": "AI-powered development assistant",
+      "private": true,
+      "featured": true
+    }
+  },
+  "defaultApp": "devcli"
+}
