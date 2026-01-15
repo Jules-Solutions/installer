@@ -1,51 +1,65 @@
 # Jules.Solutions Installer
 
-One-click installer for Jules.Solutions apps.
+Generic installer framework for Jules.Solutions applications.
 
-## Quick Install
+## Architecture
 
-**Option 1: Download and double-click**
-1. Download [Install.bat](https://raw.githubusercontent.com/Jules-Solutions/installer/main/Install.bat)
-2. Double-click it
-3. Done!
-
-**Option 2: PowerShell one-liner**
-```powershell
-irm https://raw.githubusercontent.com/Jules-Solutions/installer/main/install.ps1 | iex
 ```
-
-## What Gets Installed
-
-- **DevCLI** - AI-powered development assistant
-- **Your .Life vault** - Personal knowledge management
+installer/
+├── Install.bat              # Drop-anywhere entry point
+├── install.ps1              # Public bootstrapper (downloaded by users)
+├── src/
+│   ├── Invoke-Installer.ps1 # Main installer orchestrator
+│   ├── gui/
+│   │   ├── Install-GUI.ps1  # Generic WPF GUI framework
+│   │   └── themes/
+│   │       └── dark.xaml    # UI theme definitions
+│   └── lib/
+│       ├── auth.ps1         # GitHub authentication helpers
+│       ├── download.ps1     # File download helpers
+│       └── manifest.ps1     # App manifest parser
+├── apps/                    # App registry (lightweight references)
+│   └── devcli.json          # Points to Jul352mf/DevCLI
+└── docs/
+    └── MANIFEST_SPEC.md     # How to create app manifests
+```
 
 ## How It Works
 
-1. Installer downloads from this public repo
-2. If the app is private, you'll be prompted to authenticate with GitHub
-3. App-specific installer runs and sets everything up
+1. User runs `irm .../install.ps1 | iex`
+2. Installer authenticates with GitHub (if needed for private apps)
+3. Downloads app manifest from the app's repo
+4. GUI renders pages/options defined in manifest
+5. Executes installation steps defined in manifest
 
-## Requirements
+## App Integration
 
-- Windows 10/11
-- PowerShell 5.1+ (included with Windows)
-- GitHub account (for private apps)
+Apps provide their own `install/manifest.json`:
 
-## For Developers
-
-Apps are defined in `install.ps1`. To add a new app:
-
-```powershell
-$Apps = @{
-    "YourApp" = @{
-        Repo = "org/repo"
-        Description = "What it does"
-        Private = $true  # or $false for public repos
-        Bootstrap = "path/to/install-script.ps1"
-    }
+```json
+{
+  "name": "DevCLI",
+  "version": "0.1.0",
+  "description": "AI-powered development assistant",
+  "private": true,
+  "options": [...],
+  "steps": [...]
 }
 ```
 
----
+See [MANIFEST_SPEC.md](docs/MANIFEST_SPEC.md) for full specification.
 
-[Jules.Solutions](https://github.com/Jules-Solutions)
+## Development
+
+```powershell
+# Test locally
+.\src\Invoke-Installer.ps1 -App devcli
+
+# Build release
+.\Build-Release.ps1
+```
+
+## Related Repos
+
+- [Jul352mf/DevCLI](https://github.com/Jul352mf/DevCLI) - DevCLI application
+- [Jules-Solutions/installer](https://github.com/Jules-Solutions/installer) - Public installer (this repo's deployment target)
