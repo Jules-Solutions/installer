@@ -368,7 +368,19 @@ Write-Host ""
 
 # Menu mode - launch GUI directly with mode selection
 if ($Mode -eq "Menu") {
-    # Ensure gh CLI first
+    # Download GUI from PUBLIC installer repo (no auth needed)
+    Write-Host "  Downloading installer..." -ForegroundColor Gray
+    $guiUrl = "https://raw.githubusercontent.com/Jules-Solutions/installer/master/src/gui/Install-GUI.ps1"
+    try {
+        $guiScript = Invoke-RestMethod -Uri $guiUrl -UseBasicParsing
+    } catch {
+        Write-Host "  [ERROR] Failed to download GUI: $_" -ForegroundColor Red
+        Write-Host "`n  Press any key to exit..." -ForegroundColor Gray
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        exit 1
+    }
+    
+    # Ensure gh CLI for manifest from private repo
     if (-not (Install-GitHubCLI)) {
         Write-Host "`n  Press any key to exit..." -ForegroundColor Gray
         $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
@@ -384,13 +396,11 @@ if ($Mode -eq "Menu") {
         }
     }
     
-    # Download and launch GUI in Menu mode
-    Write-Host "  Downloading installer..." -ForegroundColor Gray
+    # Download manifest from app repo (may be private)
     $manifestJson = Get-GitHubFile -Repo $appConfig.Repo -Path $appConfig.ManifestPath
-    $guiScript = Get-GitHubFile -Repo $appConfig.Repo -Path "install/gui/Install-GUI.ps1"
     
-    if (-not $manifestJson -or -not $guiScript) {
-        Write-Host "  [ERROR] Failed to download installer" -ForegroundColor Red
+    if (-not $manifestJson) {
+        Write-Host "  [ERROR] Failed to download app manifest" -ForegroundColor Red
         Write-Host "`n  Press any key to exit..." -ForegroundColor Gray
         $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         exit 1

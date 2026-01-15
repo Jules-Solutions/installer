@@ -1,13 +1,17 @@
 <#
 .SYNOPSIS
-    Jules.Solutions Generic Installer GUI
+    Jules.Solutions Universal Installer GUI
 .DESCRIPTION
-    WPF-based installer that renders UI based on app manifests.
+    WPF-based installer supporting Install, Update, and Uninstall modes.
     Manifest-driven: apps define their options and steps.
 .PARAMETER Manifest
     The app manifest object (from Get-AppManifest)
 .PARAMETER Repo
     The repository in owner/repo format
+.PARAMETER Mode
+    Operation mode: Menu (show selection), Install, Update, Uninstall
+.PARAMETER AppPath
+    Path to installed app (for Update/Uninstall modes)
 .NOTES
     Requires: Windows 10/11, PowerShell 5.1+, .NET Framework 4.5+
 #>
@@ -17,7 +21,12 @@ param(
     $Manifest,
     
     [Parameter(Mandatory)]
-    [string]$Repo
+    [string]$Repo,
+    
+    [ValidateSet("Menu", "Install", "Update", "Uninstall")]
+    [string]$Mode = "Menu",
+    
+    [string]$AppPath = "$env:LOCALAPPDATA\Jules.Solutions\apps\devcli"
 )
 
 Add-Type -AssemblyName PresentationFramework
@@ -62,12 +71,15 @@ function New-InstallerXaml {
     
     # Build completion actions
     $completionXaml = Build-CompletionXaml -Completion $Manifest.completion -Colors $Colors
+    
+    # Build uninstall options (manifest-driven)
+    $uninstallXaml = Build-UninstallXaml -Uninstall $Manifest.uninstall -Colors $Colors
 
     return @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Jules.Solutions - $appName"
-        Height="520" Width="680"
+        Height="620" Width="680"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         Background="$($Colors.Background)">
@@ -205,6 +217,43 @@ function New-InstallerXaml {
         <!-- Main Content -->
         <Grid Grid.Row="0" Margin="40,30,40,10">
             
+            <!-- Page -1: Mode Selection -->
+            <StackPanel x:Name="PageModeSelect" Visibility="Collapsed">
+                <TextBlock Text="JS" FontSize="42" Foreground="$($Colors.Primary)" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,10,0,15"/>
+                <TextBlock Text="Jules.Solutions" Foreground="$($Colors.Primary)" FontSize="26" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,5"/>
+                <TextBlock Text="$appName" Foreground="$($Colors.Text)" FontSize="16" HorizontalAlignment="Center" Margin="0,0,0,25"/>
+                
+                <Border x:Name="CardInstall" Background="$($Colors.Surface)" CornerRadius="12" Padding="25,20" Margin="0,8" Cursor="Hand">
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="⬇" FontSize="28" Foreground="$($Colors.Success)" VerticalAlignment="Center" FontFamily="Segoe UI Symbol"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Install" Foreground="$($Colors.Text)" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="Fresh installation of $appName" Foreground="$($Colors.SubText)" FontSize="13"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                
+                <Border x:Name="CardUpdate" Background="$($Colors.Surface)" CornerRadius="12" Padding="25,20" Margin="0,8" Cursor="Hand">
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="⟳" FontSize="28" Foreground="$($Colors.Warning)" VerticalAlignment="Center" FontFamily="Segoe UI Symbol"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Update" Foreground="$($Colors.Text)" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="Get latest features and fixes" Foreground="$($Colors.SubText)" FontSize="13"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                
+                <Border x:Name="CardUninstall" Background="$($Colors.Surface)" CornerRadius="12" Padding="25,20" Margin="0,8" Cursor="Hand">
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="✕" FontSize="28" Foreground="$($Colors.Error)" VerticalAlignment="Center" FontFamily="Segoe UI Symbol"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Uninstall" Foreground="$($Colors.Text)" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="Remove $appName (choose what to keep)" Foreground="$($Colors.SubText)" FontSize="13"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
+            
             <!-- Page 0: Welcome -->
             <StackPanel x:Name="PageWelcome" Visibility="Visible">
                 <TextBlock Text="JS" FontSize="48" Foreground="$($Colors.Primary)" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,20,0,20"/>
@@ -263,6 +312,26 @@ function New-InstallerXaml {
                     </ScrollViewer>
                 </Border>
             </StackPanel>
+            
+            <!-- Page 6: Uninstall Options (manifest-driven) -->
+            <ScrollViewer x:Name="PageUninstall" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Uninstall Options" Foreground="$($Colors.Primary)" FontSize="24" FontWeight="Bold" Margin="0,0,0,5"/>
+                    <TextBlock Text="Select what to remove:" Foreground="$($Colors.SubText)" FontSize="14" Margin="0,0,0,20"/>
+                    
+                    <Border Background="$($Colors.Surface)" CornerRadius="8" Padding="20" Margin="0,0,0,15">
+                        <StackPanel x:Name="UninstallOptionsContainer">
+                            $uninstallXaml
+                        </StackPanel>
+                    </Border>
+                    
+                    <Border Background="#3b1f1f" CornerRadius="6" Padding="15">
+                        <CheckBox x:Name="ChkUninstallAll" Foreground="$($Colors.Error)" FontSize="14" FontWeight="Bold">
+                            <TextBlock Text="  SELECT ALL - Complete removal"/>
+                        </CheckBox>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
         
         <!-- Footer Navigation -->
@@ -365,6 +434,34 @@ function Build-CompletionXaml {
     return $xaml
 }
 
+function Build-UninstallXaml {
+    param($Uninstall, $Colors)
+    
+    if (-not $Uninstall -or -not $Uninstall.options) {
+        return ""
+    }
+    
+    $xaml = ""
+    
+    foreach ($opt in $Uninstall.options) {
+        $checked = if ($opt.default) { "True" } else { "False" }
+        $textColor = if ($opt.danger) { $Colors.Error } elseif ($opt.warning) { $Colors.Warning } else { $Colors.Text }
+        $descColor = if ($opt.danger) { $Colors.Error } elseif ($opt.warning) { $Colors.Warning } else { $Colors.Muted }
+        $warningPrefix = if ($opt.danger -or $opt.warning) { "⚠️ " } else { "" }
+        
+        $xaml += @"
+                            <CheckBox x:Name="ChkUninstall_$($opt.id)" IsChecked="$checked" Foreground="$textColor" FontSize="14" Margin="0,8">
+                                <StackPanel>
+                                    <TextBlock Text="$($opt.label)" FontWeight="SemiBold" Foreground="$textColor"/>
+                                    <TextBlock Text="$warningPrefix$($opt.description)" Foreground="$descColor" FontSize="12"/>
+                                </StackPanel>
+                            </CheckBox>
+"@
+    }
+    
+    return $xaml
+}
+
 # ============================================================================
 # CREATE WINDOW
 # ============================================================================
@@ -374,12 +471,23 @@ $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($xaml))
 $window = [Windows.Markup.XamlReader]::Load($reader)
 
 # Get elements
+$pageModeSelect = $window.FindName("PageModeSelect")
 $pageWelcome = $window.FindName("PageWelcome")
 $pageOptions = $window.FindName("PageOptions")
 $pageVariables = $window.FindName("PageVariables")
 $pageInstalling = $window.FindName("PageInstalling")
 $pageComplete = $window.FindName("PageComplete")
 $pageError = $window.FindName("PageError")
+$pageUninstall = $window.FindName("PageUninstall")
+
+# Mode cards
+$cardInstall = $window.FindName("CardInstall")
+$cardUpdate = $window.FindName("CardUpdate")
+$cardUninstall = $window.FindName("CardUninstall")
+
+# Uninstall checkboxes - found dynamically from manifest
+$chkUninstallAll = $window.FindName("ChkUninstallAll")
+$uninstallOptionsContainer = $window.FindName("UninstallOptionsContainer")
 
 $txtStatus = $window.FindName("TxtStatus")
 $txtLog = $window.FindName("TxtLog")
@@ -394,7 +502,8 @@ $btnBack = $window.FindName("BtnBack")
 $btnNext = $window.FindName("BtnNext")
 
 # State
-$script:currentPage = 0
+$script:currentPage = -1  # Start at mode select if Menu mode
+$script:currentMode = $Mode
 $script:installLog = ""
 $script:values = @{}  # Collected variable/option values
 $script:isInstalling = $false
@@ -402,24 +511,38 @@ $script:isInstalling = $false
 # ============================================================================
 # NAVIGATION
 # ============================================================================
-function Show-Page {
-    param([int]$page)
-    
+function Hide-AllPages {
+    $pageModeSelect.Visibility = "Collapsed"
     $pageWelcome.Visibility = "Collapsed"
     $pageOptions.Visibility = "Collapsed"
     $pageVariables.Visibility = "Collapsed"
     $pageInstalling.Visibility = "Collapsed"
     $pageComplete.Visibility = "Collapsed"
     $pageError.Visibility = "Collapsed"
+    $pageUninstall.Visibility = "Collapsed"
+}
+
+function Show-Page {
+    param([int]$page)
+    
+    Hide-AllPages
     
     $hasOptions = $Manifest.options -and $Manifest.options.Count -gt 0
     $hasVariables = $Manifest.variables -and $Manifest.variables.PSObject.Properties.Count -gt 0
     
     switch ($page) {
+        -1 {  # Mode Selection
+            $pageModeSelect.Visibility = "Visible"
+            $btnBack.Visibility = "Collapsed"
+            $btnNext.Visibility = "Collapsed"
+            $btnCancel.Content = "Exit"
+        }
         0 {  # Welcome
             $pageWelcome.Visibility = "Visible"
-            $btnBack.Visibility = "Collapsed"
+            $btnBack.Visibility = if ($script:currentMode -eq "Menu") { "Visible" } else { "Collapsed" }
+            $btnNext.Visibility = "Visible"
             $btnNext.Content = "Next"
+            $btnCancel.Content = "Cancel"
             $btnCancel.Visibility = "Visible"
         }
         1 {  # Options (skip if none)
@@ -465,6 +588,13 @@ function Show-Page {
             $btnNext.Content = "Close"
             $btnNext.Visibility = "Visible"
             $btnCancel.Visibility = "Collapsed"
+        }
+        6 {  # Uninstall Options
+            $pageUninstall.Visibility = "Visible"
+            $btnBack.Visibility = "Visible"
+            $btnNext.Content = "Uninstall"
+            $btnNext.Visibility = "Visible"
+            $btnCancel.Visibility = "Visible"
         }
     }
     
@@ -768,8 +898,220 @@ function Start-Installation {
 }
 
 # ============================================================================
+# UNINSTALL (script-driven, runs in background)
+# ============================================================================
+function Start-Uninstall {
+    Show-Page 3  # Show installing page (repurposed for uninstall progress)
+    $txtStatus.Text = "Preparing uninstall..."
+    
+    # Collect selected uninstall options from manifest
+    $selectedOptions = @()
+    if ($Manifest.uninstall -and $Manifest.uninstall.options) {
+        foreach ($opt in $Manifest.uninstall.options) {
+            $chk = $window.FindName("ChkUninstall_$($opt.id)")
+            if ($chk -and $chk.IsChecked -eq $true) {
+                $selectedOptions += $opt
+            }
+        }
+    }
+    
+    if ($selectedOptions.Count -eq 0) {
+        [System.Windows.MessageBox]::Show("Please select at least one option to uninstall.", "Nothing Selected", "OK", "Warning")
+        Show-Page 6
+        return
+    }
+    
+    Write-Host "Selected uninstall options: $($selectedOptions.id -join ', ')"
+    
+    $runspace = [runspacefactory]::CreateRunspace()
+    $runspace.ApartmentState = "STA"
+    $runspace.Open()
+    
+    # Pass variables to runspace
+    $runspace.SessionStateProxy.SetVariable("window", $window)
+    $runspace.SessionStateProxy.SetVariable("Manifest", $Manifest)
+    $runspace.SessionStateProxy.SetVariable("Repo", $Repo)
+    $runspace.SessionStateProxy.SetVariable("selectedOptions", $selectedOptions)
+    $runspace.SessionStateProxy.SetVariable("txtLog", $txtLog)
+    $runspace.SessionStateProxy.SetVariable("logScroller", $logScroller)
+    $runspace.SessionStateProxy.SetVariable("progressBar", $progressBar)
+    $runspace.SessionStateProxy.SetVariable("txtStatus", $txtStatus)
+    $runspace.SessionStateProxy.SetVariable("txtCompleteMessage", $txtCompleteMessage)
+    $runspace.SessionStateProxy.SetVariable("txtErrorMessage", $txtErrorMessage)
+    $runspace.SessionStateProxy.SetVariable("txtErrorLog", $txtErrorLog)
+    $runspace.SessionStateProxy.SetVariable("pageComplete", $pageComplete)
+    $runspace.SessionStateProxy.SetVariable("pageError", $pageError)
+    $runspace.SessionStateProxy.SetVariable("pageInstalling", $pageInstalling)
+    $runspace.SessionStateProxy.SetVariable("btnNext", $btnNext)
+    $runspace.SessionStateProxy.SetVariable("btnCancel", $btnCancel)
+    
+    $powershell = [powershell]::Create()
+    $powershell.Runspace = $runspace
+    $script:isInstalling = $true
+    
+    [void]$powershell.AddScript({
+        $installLog = ""
+        
+        function Write-Log {
+            param([string]$msg)
+            $script:installLog += "$msg`n"
+            $window.Dispatcher.Invoke([Action]{
+                $txtLog.Text = $script:installLog
+                $logScroller.ScrollToEnd()
+            })
+        }
+        
+        function Update-Progress {
+            param([int]$pct, [string]$status)
+            $window.Dispatcher.Invoke([Action]{
+                $progressBar.Value = $pct
+                $txtStatus.Text = $status
+            })
+        }
+        
+        function Show-Complete {
+            $window.Dispatcher.Invoke([Action]{
+                $pageComplete.Visibility = "Visible"
+                $pageInstalling.Visibility = "Collapsed"
+                $txtCompleteMessage.Text = "Uninstall completed successfully."
+                $btnNext.Content = "Finish"
+                $btnNext.Visibility = "Visible"
+                $btnCancel.Visibility = "Collapsed"
+                $window.Tag = 4
+            })
+        }
+        
+        function Show-Error {
+            param([string]$msg)
+            $window.Dispatcher.Invoke([Action]{
+                $pageError.Visibility = "Visible"
+                $pageInstalling.Visibility = "Collapsed"
+                $txtErrorMessage.Text = $msg
+                $txtErrorLog.Text = $script:installLog
+                $btnNext.Content = "Close"
+                $btnNext.Visibility = "Visible"
+                $btnCancel.Visibility = "Collapsed"
+            })
+        }
+        
+        function Get-GitHubFile {
+            param([string]$Repo, [string]$Path)
+            $content = gh api "repos/$Repo/contents/$Path" --jq '.content' 2>&1
+            if ($LASTEXITCODE -ne 0) { return $null }
+            try {
+                return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($content))
+            } catch { return $null }
+        }
+        
+        try {
+            $appName = if ($Manifest.name) { $Manifest.name } else { "App" }
+            
+            Write-Log "========================================="
+            Write-Log "  $appName Uninstall"
+            Write-Log "========================================="
+            Write-Log ""
+            
+            $totalSteps = $selectedOptions.Count
+            $currentStep = 0
+            
+            foreach ($opt in $selectedOptions) {
+                $currentStep++
+                $pct = [int](($currentStep / $totalSteps) * 100)
+                Update-Progress $pct "Running: $($opt.label)..."
+                Write-Log "[$currentStep/$totalSteps] $($opt.label)..."
+                
+                # Download script from app repo
+                $scriptContent = Get-GitHubFile -Repo $Repo -Path $opt.script
+                
+                if (-not $scriptContent) {
+                    Write-Log "  [SKIP] Script not found: $($opt.script)"
+                    continue
+                }
+                
+                # Save to temp and execute
+                $tempScript = Join-Path $env:TEMP "uninstall-$($opt.id).ps1"
+                Set-Content -Path $tempScript -Value $scriptContent -Encoding UTF8
+                
+                # Run the script
+                $psExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+                if (-not (Test-Path $psExe)) { $psExe = "powershell" }
+                
+                $result = & $psExe -ExecutionPolicy Bypass -NoProfile -File $tempScript 2>&1
+                $result | ForEach-Object { Write-Log "  $_" }
+                
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Log "  [WARNING] Script returned non-zero exit code: $LASTEXITCODE"
+                } else {
+                    Write-Log "  [OK] Done"
+                }
+                
+                # Cleanup temp script
+                Remove-Item $tempScript -Force -ErrorAction SilentlyContinue
+            }
+            
+            Update-Progress 100 "Uninstall complete!"
+            Write-Log ""
+            Write-Log "========================================="
+            Write-Log "  Uninstall completed successfully!"
+            Write-Log "========================================="
+            
+            Start-Sleep -Milliseconds 500
+            Show-Complete
+            
+        } catch {
+            Write-Log ""
+            Write-Log "ERROR: $_"
+            Show-Error $_.Exception.Message
+        }
+    })
+    
+    $null = $powershell.BeginInvoke()
+}
+        }
+    })
+    
+    $null = $powershell.BeginInvoke()
+}
+
+# ============================================================================
 # EVENT HANDLERS
 # ============================================================================
+
+# Mode selection cards
+$cardInstall.Add_MouseLeftButtonUp({
+    $script:currentMode = "Install"
+    Show-Page 0
+})
+
+$cardUpdate.Add_MouseLeftButtonUp({
+    $script:currentMode = "Update"
+    Show-Page 0
+})
+
+$cardUninstall.Add_MouseLeftButtonUp({
+    $script:currentMode = "Uninstall"
+    Show-Page 6
+})
+
+# Select All checkbox for uninstall (works with dynamic checkboxes)
+$chkUninstallAll.Add_Checked({
+    if ($Manifest.uninstall -and $Manifest.uninstall.options) {
+        foreach ($opt in $Manifest.uninstall.options) {
+            $chk = $window.FindName("ChkUninstall_$($opt.id)")
+            if ($chk) { $chk.IsChecked = $true }
+        }
+    }
+})
+
+$chkUninstallAll.Add_Unchecked({
+    if ($Manifest.uninstall -and $Manifest.uninstall.options) {
+        foreach ($opt in $Manifest.uninstall.options) {
+            $chk = $window.FindName("ChkUninstall_$($opt.id)")
+            if ($chk) { $chk.IsChecked = $false }
+        }
+    }
+})
+
 $btnCancel.Add_Click({
     if ($script:isInstalling) {
         # Could implement cancel logic here
@@ -778,8 +1120,20 @@ $btnCancel.Add_Click({
 })
 
 $btnBack.Add_Click({
-    if ($script:currentPage -gt 0) {
-        Show-Page ($script:currentPage - 1)
+    switch ($script:currentPage) {
+        0 {  # From Welcome, go back to mode select if Menu mode
+            if ($script:currentMode -eq "Menu") {
+                Show-Page -1
+            }
+        }
+        6 {  # From Uninstall, go back to mode select
+            Show-Page -1
+        }
+        default {
+            if ($script:currentPage -gt 0) {
+                Show-Page ($script:currentPage - 1)
+            }
+        }
     }
 })
 
@@ -815,11 +1169,30 @@ $btnNext.Add_Click({
             $window.Close()
         }
         5 { $window.Close() }
+        6 {
+            # Execute uninstall
+            Start-Uninstall
+        }
     }
 })
 
 # ============================================================================
 # RUN
 # ============================================================================
-Show-Page 0
+
+# Determine starting page based on mode
+switch ($Mode) {
+    "Menu"      { Show-Page -1 }  # Mode selection
+    "Install"   { Show-Page 0 }   # Welcome
+    "Update"    { 
+        $script:currentMode = "Update"
+        Show-Page 0 
+    }
+    "Uninstall" { 
+        $script:currentMode = "Uninstall"
+        Show-Page 6  # Uninstall options
+    }
+    default     { Show-Page -1 }  # Default to mode selection
+}
+
 $window.ShowDialog() | Out-Null
