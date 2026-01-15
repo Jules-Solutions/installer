@@ -1067,11 +1067,6 @@ function Start-Uninstall {
     
     $null = $powershell.BeginInvoke()
 }
-        }
-    })
-    
-    $null = $powershell.BeginInvoke()
-}
 
 # ============================================================================
 # EVENT HANDLERS
