@@ -148,9 +148,11 @@ if (-not $guiScript) {
     exit 1
 }
 
-# Save and run
+# Save GUI and manifest to temp files
 $tempGui = Join-Path $env:TEMP "JS-Install-GUI.ps1"
+$tempManifest = Join-Path $env:TEMP "JS-manifest.json"
 Set-Content -Path $tempGui -Value $guiScript -Encoding UTF8
+Set-Content -Path $tempManifest -Value $manifestJson -Encoding UTF8
 Write-Host "  [OK] Ready" -ForegroundColor Green
 
 Write-Host "`n  Launching installer..." -ForegroundColor Cyan
@@ -158,4 +160,4 @@ Write-Host ""
 
 # Run GUI with manifest (use Windows PowerShell for WPF)
 $psExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-& $psExe -ExecutionPolicy Bypass -NoProfile -Command "& '$tempGui' -Manifest (`$args[0] | ConvertFrom-Json) -Repo '$($app.Repo)'" -Args $manifestJson
+& $psExe -ExecutionPolicy Bypass -NoProfile -Command "`$m = Get-Content '$tempManifest' -Raw | ConvertFrom-Json; & '$tempGui' -Manifest `$m -Repo '$($app.Repo)'"
