@@ -5,13 +5,19 @@
 $ErrorActionPreference = 'Continue'
 
 # App catalog - add apps here
-$Apps = @{
+$Apps = [ordered]@{
     "DevCLI" = @{
         Repo = "Jul352mf/DevCLI"
         Description = "AI-powered development assistant"
         Private = $true
         Installer = "scripts/installer/Install-GUI.ps1"
         # Install-GUI.ps1 is self-contained - handles git, gh, auth, and cloning internally
+    }
+    "TotallyLegal" = @{
+        Repo = "Jules-Solutions/Open-BAR"
+        Description = "Beyond All Reason widget suite (overlays, automation, strategy)"
+        Private = $false
+        Installer = "install/Install-TotallyLegal.ps1"
     }
 }
 
@@ -21,6 +27,51 @@ function Write-Banner {
     Write-Host "      Jules.Solutions Installer" -ForegroundColor Cyan
     Write-Host "  ============================================" -ForegroundColor Cyan
     Write-Host ""
+}
+
+function Show-AppMenu {
+    <#
+    .SYNOPSIS
+        Display app selection menu and return the chosen app name
+    #>
+    Write-Host "  Available applications:" -ForegroundColor White
+    Write-Host ""
+    
+    $index = 1
+    $appNames = @($Apps.Keys)
+    
+    foreach ($name in $appNames) {
+        $app = $Apps[$name]
+        $privateTag = if ($app.Private) { " (requires GitHub login)" } else { "" }
+        Write-Host "    [$index] $name" -ForegroundColor Cyan -NoNewline
+        Write-Host "$privateTag" -ForegroundColor DarkGray
+        Write-Host "        $($app.Description)" -ForegroundColor Gray
+        Write-Host ""
+        $index++
+    }
+    
+    Write-Host "    [Q] Quit" -ForegroundColor DarkGray
+    Write-Host ""
+    
+    while ($true) {
+        $choice = Read-Host "  Select an app (1-$($appNames.Count))"
+        
+        if ($choice -eq 'Q' -or $choice -eq 'q') {
+            return $null
+        }
+        
+        $num = 0
+        if ([int]::TryParse($choice, [ref]$num) -and $num -ge 1 -and $num -le $appNames.Count) {
+            return $appNames[$num - 1]
+        }
+        
+        # Also accept app name directly
+        if ($Apps.Contains($choice)) {
+            return $choice
+        }
+        
+        Write-Host "  Invalid choice. Please enter 1-$($appNames.Count) or Q to quit." -ForegroundColor Yellow
+    }
 }
 
 function Install-GitHubCLI {
@@ -123,10 +174,27 @@ function Install-App {
         
     } else {
         # Public app - direct download and run
+        Write-Host "  Downloading installer..." -ForegroundColor Gray
+        
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        } catch { }
+        
         $url = "https://raw.githubusercontent.com/$($AppInfo.Repo)/main/$($AppInfo.Installer)"
-        $installer = Invoke-RestMethod $url
+        
+        try {
+            $installer = Invoke-RestMethod $url -ErrorAction Stop
+        } catch {
+            Write-Host "  [ERROR] Failed to download installer from:" -ForegroundColor Red
+            Write-Host "  $url" -ForegroundColor DarkGray
+            Write-Host "  $_" -ForegroundColor DarkGray
+            return $false
+        }
+        
         $tempPath = Join-Path $env:TEMP "Install-$AppName.ps1"
         Set-Content -Path $tempPath -Value $installer -Encoding UTF8
+        Write-Host "  [OK] Downloaded" -ForegroundColor Green
+        Write-Host ""
         & $tempPath
     }
     
@@ -136,8 +204,13 @@ function Install-App {
 # Main
 Write-Banner
 
-# Currently just install DevCLI (can expand to app selection menu later)
-$selectedApp = "DevCLI"
+# Show app selection menu
+$selectedApp = Show-AppMenu
+
+if (-not $selectedApp) {
+    Write-Host "  Goodbye!" -ForegroundColor Gray
+    exit 0
+}
 
 # Ensure gh CLI for private apps
 if ($Apps[$selectedApp].Private) {
@@ -153,6 +226,6 @@ if ($Apps[$selectedApp].Private) {
 $success = Install-App -AppName $selectedApp -AppInfo $Apps[$selectedApp]
 
 if ($success) {
-    # GUI handles its own completion message
+    # App installer handles its own completion message
     Write-Host ""
 }

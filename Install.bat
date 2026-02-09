@@ -14,9 +14,9 @@ echo   ============================================
 echo       Jules.Solutions Installer
 echo   ============================================
 echo.
-echo   This installer will set up:
+echo   This installer will set up one of:
 echo     - DevCLI (AI development assistant)
-echo     - Your personal .Life vault
+echo     - TotallyLegal (Beyond All Reason widgets)
 echo.
 
 :: Find PowerShell
