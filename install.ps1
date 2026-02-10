@@ -10,8 +10,7 @@ $Apps = [ordered]@{
         Repo = "Jul352mf/DevCLI"
         Description = "AI-powered development assistant"
         Private = $true
-        Installer = "scripts/installer/Install-GUI.ps1"
-        # Install-GUI.ps1 is self-contained - handles git, gh, auth, and cloning internally
+        ManifestPath = "install/manifest.json"
     }
     "TotallyLegal" = @{
         Repo = "Jules-Solutions/Open-BAR"
@@ -20,6 +19,9 @@ $Apps = [ordered]@{
         Installer = "install/Install-TotallyLegal.ps1"
     }
 }
+
+# GUI installer URL (hosted in this public repo)
+$GuiInstallerUrl = "https://raw.githubusercontent.com/Jules-Solutions/installer/main/src/gui/Install-GUI.ps1"
 
 function Write-Banner {
     Write-Host ""
@@ -139,49 +141,63 @@ function Get-PrivateFile {
 
 function Install-App {
     param([string]$AppName, [hashtable]$AppInfo)
-    
+
     Write-Host ""
     Write-Host "  Installing $AppName..." -ForegroundColor Cyan
     Write-Host "  $($AppInfo.Description)" -ForegroundColor Gray
     Write-Host ""
-    
-    # Check if private app needs auth
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    } catch { }
+
     if ($AppInfo.Private) {
+        # Private app: auth → download manifest → download GUI → launch
         if (-not (Test-GitHubAuth)) {
             if (-not (Invoke-GitHubAuth)) {
                 return $false
             }
         }
-        
-        # Download the GUI installer (it's self-contained)
-        Write-Host "  Downloading installer..." -ForegroundColor Gray
-        $installer = Get-PrivateFile -Repo $AppInfo.Repo -Path $AppInfo.Installer
-        
-        if (-not $installer) {
-            Write-Host "  [ERROR] Failed to download installer" -ForegroundColor Red
+
+        # Download manifest from private repo
+        Write-Host "  Fetching app manifest..." -ForegroundColor Gray
+        $manifestJson = Get-PrivateFile -Repo $AppInfo.Repo -Path $AppInfo.ManifestPath
+
+        if (-not $manifestJson) {
+            Write-Host "  [ERROR] Failed to fetch manifest from $($AppInfo.Repo)" -ForegroundColor Red
             return $false
         }
-        
-        $installerPath = Join-Path $env:TEMP "Install-GUI.ps1"
-        Set-Content -Path $installerPath -Value $installer -Encoding UTF8
-        Write-Host "  [OK] Downloaded" -ForegroundColor Green
-        
-        # Launch the GUI installer
+
+        $manifest = $manifestJson | ConvertFrom-Json
+        Write-Host "  [OK] $($manifest.name) v$($manifest.version)" -ForegroundColor Green
+
+        # Download GUI installer from public installer repo
+        Write-Host "  Downloading installer GUI..." -ForegroundColor Gray
+
+        try {
+            $guiContent = Invoke-RestMethod $GuiInstallerUrl -ErrorAction Stop
+        } catch {
+            Write-Host "  [ERROR] Failed to download GUI installer" -ForegroundColor Red
+            Write-Host "  $_" -ForegroundColor DarkGray
+            return $false
+        }
+
+        $guiPath = Join-Path $env:TEMP "Install-GUI.ps1"
+        Set-Content -Path $guiPath -Value $guiContent -Encoding UTF8
+        Write-Host "  [OK] Ready" -ForegroundColor Green
+
+        # Launch GUI with manifest and repo
         Write-Host ""
         Write-Host "  Launching installer..." -ForegroundColor Cyan
         Write-Host ""
-        & $installerPath
-        
+        & $guiPath -Manifest $manifest -Repo $AppInfo.Repo
+
     } else {
         # Public app - direct download and run
         Write-Host "  Downloading installer..." -ForegroundColor Gray
-        
-        try {
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        } catch { }
-        
+
         $url = "https://raw.githubusercontent.com/$($AppInfo.Repo)/main/$($AppInfo.Installer)"
-        
+
         try {
             $installer = Invoke-RestMethod $url -ErrorAction Stop
         } catch {
@@ -190,14 +206,14 @@ function Install-App {
             Write-Host "  $_" -ForegroundColor DarkGray
             return $false
         }
-        
+
         $tempPath = Join-Path $env:TEMP "Install-$AppName.ps1"
         Set-Content -Path $tempPath -Value $installer -Encoding UTF8
         Write-Host "  [OK] Downloaded" -ForegroundColor Green
         Write-Host ""
         & $tempPath
     }
-    
+
     return $true
 }
 
