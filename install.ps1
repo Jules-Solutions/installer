@@ -194,11 +194,10 @@ function Install-UV {
     }
 }
 
-# ─── Step 3: Authentication ────────────────────────────────────────────────
+# ─── Step 3: Authentication (Device Flow + Manual Fallback) ───────────────
 
-function Get-Authentication {
-    Write-Header "Authentication"
-
+function Get-AuthenticationManual {
+    # Manual API key paste — fallback when device flow is unavailable
     Write-Host ""
     Write-Host "  Opening Jules.Solutions in your browser..." -ForegroundColor White
     Write-Host "  Sign up or log in, then copy your API key from the dashboard." -ForegroundColor DarkGray
@@ -250,6 +249,82 @@ function Get-Authentication {
     }
 
     return $apiKey
+}
+
+function Get-Authentication {
+    Write-Header "Authentication"
+
+    # Try device flow first
+    Write-Step "Requesting device authorization..." "..."
+    try {
+        $response = Invoke-RestMethod -Uri "$($Script:Config.AuthURL)/api/auth/device/code" -Method POST -ContentType "application/json" -TimeoutSec 10
+        $deviceCode = $response.device_code
+        $userCode = $response.user_code
+        $verifyUrl = $response.verification_uri
+        $interval = [int]$response.interval
+        $expiresIn = [int]$response.expires_in
+    }
+    catch {
+        Write-Step "Device flow unavailable — using manual key entry" "SKIP"
+        return Get-AuthenticationManual
+    }
+
+    # Show code
+    Write-Host ""
+    Write-Host "  +-----------------------------------------+" -ForegroundColor Cyan
+    Write-Host "  |                                         |" -ForegroundColor Cyan
+    Write-Host "  |   Your code:  $userCode              |" -ForegroundColor White
+    Write-Host "  |                                         |" -ForegroundColor Cyan
+    Write-Host "  +-----------------------------------------+" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Opening browser... Enter this code to authorize." -ForegroundColor DarkGray
+    Write-Host "  URL: $verifyUrl" -ForegroundColor DarkGray
+    Write-Host ""
+
+    try {
+        switch (Get-OSName) {
+            "windows" { Start-Process $verifyUrl }
+            "macos"   { & open $verifyUrl }
+            "linux"   { & xdg-open $verifyUrl 2>$null }
+        }
+    }
+    catch {
+        Write-Step "Could not open browser. Visit: $verifyUrl" "SKIP"
+    }
+
+    # Poll for authorization
+    Write-Step "Waiting for authorization..." "..."
+    $deadline = (Get-Date).AddSeconds($expiresIn)
+    $apiKey = $null
+
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds $interval
+        try {
+            $poll = Invoke-RestMethod -Uri "$($Script:Config.AuthURL)/api/auth/device/token?device_code=$deviceCode" -TimeoutSec 10
+            if ($poll.status -eq "complete") {
+                $apiKey = $poll.api_key
+                break
+            }
+            if ($poll.status -eq "expired") {
+                break
+            }
+            Write-Host "." -NoNewline -ForegroundColor DarkGray
+        }
+        catch {
+            # Network error — keep trying
+        }
+    }
+
+    Write-Host ""
+
+    if ($apiKey) {
+        Write-Step "Authorized! API key received." "OK"
+        return $apiKey
+    }
+
+    Write-Step "Authorization timed out." "FAIL"
+    Write-Host "  Falling back to manual key entry..." -ForegroundColor Yellow
+    return Get-AuthenticationManual
 }
 
 # ─── Step 4: Configure MCP ─────────────────────────────────────────────────
