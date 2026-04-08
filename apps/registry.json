@@ -1,13 +1,13 @@
 {
   "apps": {
-    "devcli": {
-      "repo": "Jul352mf/DevCLI",
-      "manifestPath": "install/manifest.json",
-      "displayName": "DevCLI",
-      "description": "AI-powered development assistant",
-      "private": true,
+    "jules-platform": {
+      "repo": "Jules-Solutions/installer",
+      "manifestPath": "manifests/jules-platform.json",
+      "displayName": "Jules.Solutions Platform",
+      "description": "Connect to the Jules.Solutions AI platform",
+      "private": false,
       "featured": true
     }
   },
-  "defaultApp": "devcli"
+  "defaultApp": "jules-platform"
 }

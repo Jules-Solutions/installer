@@ -1,123 +1,120 @@
-# Jules.Solutions Installer
+# Jules.Solutions Platform Installer
 
-One-click installer for Jules.Solutions applications (DevCLI, TotallyLegal, and more).
+One command to connect to the Jules.Solutions AI platform.
+
+## Quick Start
+
+### Windows (PowerShell 7+)
+
+```powershell
+irm https://raw.githubusercontent.com/Jules-Solutions/installer/main/install.ps1 | iex
+```
+
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jules-Solutions/installer/main/install.ps1 | pwsh -
+```
+
+> **Requires:** [PowerShell 7+](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell) (cross-platform)
+
+## What It Does
+
+The installer walks you through connecting to the Jules.Solutions platform:
+
+1. **Detects** your environment (OS, Claude Code, uv, Python)
+2. **Asks** which tier you want:
+   - **Tier 1 (Full):** Local runtime + remote MCP connection
+   - **Tier 2 (Remote):** MCP connection only
+3. **Authenticates** you via [auth.jules.solutions](https://auth.jules.solutions)
+4. **Configures** your `.mcp.json` with the Jules MCP server
+5. **Installs** `jules-local` (Tier 1 only, via [uv](https://docs.astral.sh/uv/))
+6. **Verifies** everything works
+
+After setup, restart Claude Code. The `jules` MCP server appears in your tools.
+
+## Installation Tiers
+
+| Tier | What You Get | Requirements |
+|------|-------------|-------------|
+| **Full (Tier 1)** | Local runtime + MCP tools + CLI | Python + uv (installer helps install uv) |
+| **Remote (Tier 2)** | MCP tools only (via SSE) | Nothing (just PowerShell) |
+
+## What Gets Created
+
+| File | Purpose |
+|------|---------|
+| `~/.mcp.json` | MCP server configuration (jules server entry) |
+| `~/.config/devcli/config.toml` | Local runtime config (Tier 1 only) |
 
 ## Architecture
 
-**Public bootstrap installer** → GitHub auth → **Private installer (DevCLI)**
-
-This solves the code signing problem: the public bootstrap is simple enough to avoid antivirus flags, while the real installation is secured behind GitHub authentication.
-
-## Files
-
-### One-Click Installer (NEW!)
-
-**`dist/Jules.Solutions-Installer.exe`** - Standalone Windows executable
-- Size: ~147MB (includes .NET runtime)
-- Icon: Jules.Solutions logo embedded
-- Requirements: Windows x64 only (no dependencies!)
-- Source: `src/Installer.cs` + `src/logo.ico`
-
-**How it works:**
-1. User downloads `Jules.Solutions-Installer.exe`
-2. Double-clicks it
-3. It runs: `irm install.ps1 | iex` from GitHub
-4. install.ps1 handles the rest (gh CLI, auth, real installer)
-
-### PowerShell Bootstrap
-
-**`install.ps1`** - Public PowerShell bootstrap script
-- Hosted on GitHub: `https://raw.githubusercontent.com/Jules-Solutions/installer/main/install.ps1`
-- Installs GitHub CLI if needed
-- Prompts for GitHub authentication
-- Downloads `Install-GUI.ps1` from private Jul352mf/DevCLI repo
-- Launches the GUI installer
-
-**`Install.bat`** - Legacy batch file wrapper
-- Runs `irm install.ps1 | iex`
-- Still works, but .exe is preferred
-
-## Building the One-Click Installer
-
-### Prerequisites
-- .NET 8.0 SDK or later
-- Logo file at `src/logo.ico`
-
-### Build Commands
-
-**Quick build (requires .NET runtime on target machine):**
-```bash
-cd src
-dotnet build -c Release -o ../dist
+```
+User runs install.ps1
+     |
+     v
+[1] Environment detection (OS, tools)
+     |
+     v
+[2] Tier selection (Full or Remote)
+     |
+     v
+[3] Auth (browser -> auth.jules.solutions -> API key)
+     |
+     v
+[4] Write .mcp.json (MCP SSE connection)
+     |
+     +-- Tier 2: Done!
+     |
+     v  (Tier 1 only)
+[5] Install jules-local (uv tool install)
+     |
+     v
+[6] Write config.toml
+     |
+     v
+[7] Verify all connections
 ```
 
-**Standalone build (works on any Windows x64, no .NET needed):**
-```bash
-cd src
-dotnet publish -c Release -o ../dist
-```
+## Platform Services
 
-This creates `dist/Jules.Solutions-Installer.exe` ready to distribute!
-
-### Build Script
-
-Use the PowerShell build script:
-```powershell
-.\Build-Installer.ps1
-```
+| Service | URL | What |
+|---------|-----|------|
+| API | api.jules.solutions | Platform backbone (tasks, projects, goals, sessions) |
+| Auth | auth.jules.solutions | Identity, login, API keys |
+| Dashboard | app.jules.solutions | Web UI for the platform |
+| MCP | mcp.jules.solutions | Model Context Protocol endpoint |
 
 ## Development
 
-**Edit the installer:**
-- Modify `src/Installer.cs`
-- Update `src/Installer.csproj` if needed
-- Rebuild with `dotnet publish`
-
-**Update the logo:**
-- Replace `src/logo.ico`
-- Rebuild
-
-## Distribution
-
-1. Build: `cd src && dotnet publish -c Release -o ../dist`
-2. Test: Run `dist/Jules.Solutions-Installer.exe` locally
-3. Upload to your distribution server or GitHub releases
-4. Share download link with users
-
-## How the Full Flow Works
-
 ```
-User downloads Jules.Solutions-Installer.exe
-         ↓
-    Double-click
-         ↓
-Runs: irm install.ps1 | iex (from GitHub)
-         ↓
-App selection menu: DevCLI or TotallyLegal
-         ↓
-    [DevCLI path]              [TotallyLegal path]
-install.ps1 installs gh CLI    Downloads Install-TotallyLegal.ps1
-         ↓                              ↓
-Browser opens for GitHub login  Auto-detects BAR installation
-         ↓                              ↓
-Downloads Install-GUI.ps1       Downloads widgets from GitHub
-(from private repo)                      ↓
-         ↓                     Copies to BAR/LuaUI/Widgets/
-WPF GUI installer launches              ↓
-         ↓                     Done! Launch BAR and enable widgets
-DevCLI + {Name}.Life vault
-installed
+installer/
+├── install.ps1                  # Self-contained installer script
+├── apps/registry.json           # App catalog metadata
+├── manifests/jules-platform.json # Installation manifest
+├── docs/MANIFEST_SPEC.md        # Manifest specification
+└── README.md
 ```
 
-## Supported Applications
+The installer is a single self-contained PowerShell script. No build step, no dependencies.
 
-| App | Repo | Type | Description |
-|-----|------|------|-------------|
-| DevCLI | Jul352mf/DevCLI | Private | AI-powered development assistant |
-| TotallyLegal | Jules-Solutions/Open-BAR | Public | Beyond All Reason widget suite |
+### Testing
 
-## Related Repos
+```powershell
+# Syntax check
+pwsh -Command "& { $null = [System.Management.Automation.Language.Parser]::ParseFile('install.ps1', [ref]$null, [ref]$null) }"
 
-- [Jules-Solutions/installer](https://github.com/Jules-Solutions/installer) - This repo (public bootstrap)
-- [Jul352mf/DevCLI](https://github.com/Jul352mf/DevCLI) - Private application repo
-- [Jules-Solutions/Open-BAR](https://github.com/Jules-Solutions/Open-BAR) - TotallyLegal widgets (public)
+# Dry run (will open browser for auth)
+pwsh ./install.ps1
+```
+
+## Legacy
+
+Previous versions supported DevCLI and TotallyLegal installations via GitHub auth and a WPF GUI installer. Those have been replaced by the platform installer. See git history for the old version.
+
+## Links
+
+- [Jules.Solutions](https://jules.solutions)
+- [Platform Dashboard](https://app.jules.solutions)
+- [Auth Service](https://auth.jules.solutions)
+- [jules-local](https://github.com/Jules-Solutions/jules-local)

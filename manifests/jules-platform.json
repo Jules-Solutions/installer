@@ -1,0 +1,83 @@
+{
+  "$schema": "https://jules.solutions/schemas/install-manifest-v1.json",
+  "name": "Jules.Solutions Platform",
+  "version": "2.0.0",
+  "description": "AI agent infrastructure — connect via MCP or install the local runtime",
+  "private": false,
+  "repo": "Jules-Solutions/installer",
+
+  "requirements": {
+    "os": ["windows", "macos", "linux"],
+    "minPowershell": "7.0",
+    "tools": []
+  },
+
+  "variables": {
+    "tier": {
+      "type": "choice",
+      "prompt": "Installation tier",
+      "choices": ["full", "remote"],
+      "default": "full",
+      "description": "Full = local runtime + MCP. Remote = MCP only."
+    },
+    "apiKey": {
+      "type": "string",
+      "prompt": "API Key (dck_...)",
+      "validation": "^dck_.+$",
+      "description": "Get from auth.jules.solutions dashboard"
+    }
+  },
+
+  "steps": [
+    {
+      "id": "detect",
+      "name": "Detecting environment",
+      "description": "Check OS, Claude Code, uv, Python"
+    },
+    {
+      "id": "auth",
+      "name": "Authentication",
+      "description": "Sign up or log in at auth.jules.solutions, get API key"
+    },
+    {
+      "id": "mcp",
+      "name": "Configure MCP",
+      "description": "Write .mcp.json with jules MCP server entry"
+    },
+    {
+      "id": "local-install",
+      "name": "Install jules-local",
+      "description": "Install local runtime via uv tool install",
+      "condition": "${tier} == 'full'"
+    },
+    {
+      "id": "local-config",
+      "name": "Configure jules-local",
+      "description": "Write ~/.config/devcli/config.toml",
+      "condition": "${tier} == 'full'"
+    },
+    {
+      "id": "verify",
+      "name": "Verification",
+      "description": "Test API, auth, and MCP connectivity"
+    }
+  ],
+
+  "completion": {
+    "message": "Setup complete! Restart Claude Code to use jules MCP tools.",
+    "actions": [
+      {
+        "label": "Open dashboard",
+        "url": "https://app.jules.solutions"
+      }
+    ]
+  },
+
+  "urls": {
+    "auth": "https://auth.jules.solutions",
+    "api": "https://api.jules.solutions",
+    "mcp": "https://mcp.jules.solutions/sse",
+    "dashboard": "https://app.jules.solutions",
+    "docs": "https://jules.solutions/docs"
+  }
+}

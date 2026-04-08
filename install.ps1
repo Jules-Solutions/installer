@@ -1,247 +1,480 @@
-# Jules.Solutions Installer
-# https://github.com/Jules-Solutions/installer
-# Usage: irm https://raw.githubusercontent.com/Jules-Solutions/installer/main/install.ps1 | iex
+#!/usr/bin/env pwsh
+#Requires -Version 7.0
+<#
+.SYNOPSIS
+    Jules.Solutions Platform Installer
+    One command to connect to the Jules.Solutions AI platform.
 
-$ErrorActionPreference = 'Continue'
+.DESCRIPTION
+    Supports two installation tiers:
+    - Tier 1 (Full): Local runtime (jules-local) + remote MCP connection
+    - Tier 2 (Remote): MCP connection only — no local install
 
-# App catalog - add apps here
-$Apps = [ordered]@{
-    "DevCLI" = @{
-        Repo = "Jul352mf/DevCLI"
-        Description = "AI-powered development assistant"
-        Private = $true
-        ManifestPath = "install/manifest.json"
-    }
-    "TotallyLegal" = @{
-        Repo = "Jules-Solutions/Open-BAR"
-        Description = "Beyond All Reason widget suite (overlays, automation, strategy)"
-        Private = $false
-        Installer = "install/Install-TotallyLegal.ps1"
-    }
+    Cross-platform: Windows, macOS, Linux (PowerShell Core / pwsh)
+
+.EXAMPLE
+    # Windows (PowerShell)
+    irm https://raw.githubusercontent.com/Jules-Solutions/installer/main/install.ps1 | iex
+
+    # macOS / Linux
+    curl -fsSL https://raw.githubusercontent.com/Jules-Solutions/installer/main/install.ps1 | pwsh -
+
+.LINK
+    https://jules.solutions
+    https://github.com/Jules-Solutions/installer
+#>
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+# ─── Configuration ───────────────────────────────────────────────────────────
+
+$Script:Config = @{
+    AuthURL     = "https://auth.jules.solutions"
+    ApiURL      = "https://api.jules.solutions"
+    McpURL      = "https://mcp.jules.solutions/sse"
+    LocalRepo   = "https://github.com/Jules-Solutions/jules-local.git"
+    Version     = "2.0.0"
+    ConfigDir   = if ($IsWindows) { Join-Path $env:USERPROFILE ".config" "devcli" } else { Join-Path $HOME ".config" "devcli" }
+    McpJsonPath = if ($IsWindows) { Join-Path $env:USERPROFILE ".mcp.json" } else { Join-Path $HOME ".mcp.json" }
 }
 
-# GUI installer URL (hosted in this public repo)
-$GuiInstallerUrl = "https://raw.githubusercontent.com/Jules-Solutions/installer/main/src/gui/Install-GUI.ps1"
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function Write-Banner {
+function Write-Header {
+    param([string]$Text)
     Write-Host ""
-    Write-Host "  ============================================" -ForegroundColor Cyan
-    Write-Host "      Jules.Solutions Installer" -ForegroundColor Cyan
-    Write-Host "  ============================================" -ForegroundColor Cyan
+    Write-Host "  $Text" -ForegroundColor Cyan
+    Write-Host "  $('─' * ($Text.Length + 2))" -ForegroundColor DarkGray
+}
+
+function Write-Step {
+    param([string]$Text, [string]$Status = "...")
+    $color = switch ($Status) {
+        "OK"    { "Green" }
+        "SKIP"  { "Yellow" }
+        "FAIL"  { "Red" }
+        default { "White" }
+    }
+    $icon = switch ($Status) {
+        "OK"    { "[+]" }
+        "SKIP"  { "[-]" }
+        "FAIL"  { "[!]" }
+        default { "[>]" }
+    }
+    Write-Host "  $icon $Text" -ForegroundColor $color
+}
+
+function Write-Fatal {
+    param([string]$Message)
+    Write-Host ""
+    Write-Host "  [!] ERROR: $Message" -ForegroundColor Red
+    Write-Host ""
+    exit 1
+}
+
+function Test-CommandExists {
+    param([string]$Command)
+    $null -ne (Get-Command $Command -ErrorAction SilentlyContinue)
+}
+
+function Get-OSName {
+    if ($IsWindows) { return "windows" }
+    if ($IsMacOS)   { return "macos" }
+    if ($IsLinux)   { return "linux" }
+    return "unknown"
+}
+
+# ─── Banner ──────────────────────────────────────────────────────────────────
+
+function Show-Banner {
+    Write-Host ""
+    Write-Host "  ╔═══════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "  ║                                               ║" -ForegroundColor Cyan
+    Write-Host "  ║        Jules.Solutions Platform Setup         ║" -ForegroundColor Cyan
+    Write-Host "  ║                                               ║" -ForegroundColor Cyan
+    Write-Host "  ║   AI agent infrastructure that does work.     ║" -ForegroundColor DarkGray
+    Write-Host "  ║                                               ║" -ForegroundColor Cyan
+    Write-Host "  ╚═══════════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host "  v$($Script:Config.Version)  |  $(Get-OSName)" -ForegroundColor DarkGray
     Write-Host ""
 }
 
-function Show-AppMenu {
-    <#
-    .SYNOPSIS
-        Display app selection menu and return the chosen app name
-    #>
-    Write-Host "  Available applications:" -ForegroundColor White
+# ─── Step 1: Environment Detection ──────────────────────────────────────────
+
+function Get-Environment {
+    Write-Header "Environment Detection"
+
+    $detected = @{
+        OS        = Get-OSName
+        HasCC     = Test-CommandExists "claude"
+        HasUV     = Test-CommandExists "uv"
+        HasPython = (Test-CommandExists "python3") -or (Test-CommandExists "python")
+        HasCurl   = Test-CommandExists "curl"
+    }
+
+    Write-Step "OS: $($detected.OS)" "OK"
+    Write-Step "Claude Code: $(if ($detected.HasCC) { 'found' } else { 'not found' })" $(if ($detected.HasCC) { "OK" } else { "SKIP" })
+    Write-Step "uv: $(if ($detected.HasUV) { 'found' } else { 'not found' })" $(if ($detected.HasUV) { "OK" } else { "SKIP" })
+    Write-Step "Python: $(if ($detected.HasPython) { 'found' } else { 'not found' })" $(if ($detected.HasPython) { "OK" } else { "SKIP" })
+
+    return $detected
+}
+
+# ─── Step 2: Tier Selection ─────────────────────────────────────────────────
+
+function Select-Tier {
+    param($Env)
+
+    Write-Header "Installation Tier"
+
     Write-Host ""
-    
-    $index = 1
-    $appNames = @($Apps.Keys)
-    
-    foreach ($name in $appNames) {
-        $app = $Apps[$name]
-        $privateTag = if ($app.Private) { " (requires GitHub login)" } else { "" }
-        Write-Host "    [$index] $name" -ForegroundColor Cyan -NoNewline
-        Write-Host "$privateTag" -ForegroundColor DarkGray
-        Write-Host "        $($app.Description)" -ForegroundColor Gray
+    Write-Host "  Choose your setup:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  [1] Full Install  — Local runtime + remote MCP connection" -ForegroundColor Green
+    Write-Host "      Best for: developers with Claude Code" -ForegroundColor DarkGray
+    Write-Host "      Requires: uv (will help install if missing)" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  [2] Remote Only   — MCP connection only, no local install" -ForegroundColor Yellow
+    Write-Host "      Best for: quick access, no local dependencies" -ForegroundColor DarkGray
+    Write-Host ""
+
+    do {
+        $choice = Read-Host "  Select tier [1/2]"
+    } while ($choice -notin @("1", "2"))
+
+    $tier = if ($choice -eq "1") { "full" } else { "remote" }
+    Write-Step "Selected: $(if ($tier -eq 'full') { 'Full Install (Tier 1)' } else { 'Remote Only (Tier 2)' })" "OK"
+
+    if ($tier -eq "full" -and -not $Env.HasUV) {
         Write-Host ""
-        $index++
-    }
-    
-    Write-Host "    [Q] Quit" -ForegroundColor DarkGray
-    Write-Host ""
-    
-    while ($true) {
-        $choice = Read-Host "  Select an app (1-$($appNames.Count))"
-        
-        if ($choice -eq 'Q' -or $choice -eq 'q') {
-            return $null
+        Write-Host "  uv is required for local installation." -ForegroundColor Yellow
+        $installUV = Read-Host "  Install uv now? [Y/n]"
+
+        if ($installUV -eq "n" -or $installUV -eq "N") {
+            Write-Host "  Falling back to Tier 2 (remote only)." -ForegroundColor Yellow
+            $tier = "remote"
         }
-        
-        $num = 0
-        if ([int]::TryParse($choice, [ref]$num) -and $num -ge 1 -and $num -le $appNames.Count) {
-            return $appNames[$num - 1]
-        }
-        
-        # Also accept app name directly
-        if ($Apps.Contains($choice)) {
-            return $choice
-        }
-        
-        Write-Host "  Invalid choice. Please enter 1-$($appNames.Count) or Q to quit." -ForegroundColor Yellow
-    }
-}
-
-function Install-GitHubCLI {
-    Write-Host "  Checking GitHub CLI..." -ForegroundColor Gray
-    
-    if (Get-Command gh -ErrorAction SilentlyContinue) {
-        Write-Host "  [OK] GitHub CLI installed" -ForegroundColor Green
-        return $true
-    }
-    
-    Write-Host "  Installing GitHub CLI..." -ForegroundColor Yellow
-    
-    # Try winget first
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $null = winget install GitHub.cli --accept-source-agreements --accept-package-agreements 2>&1
-        
-        # Refresh PATH
-        $env:PATH = [Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('PATH', 'User')
-        
-        if (Get-Command gh -ErrorAction SilentlyContinue) {
-            Write-Host "  [OK] GitHub CLI installed" -ForegroundColor Green
-            return $true
-        }
-    }
-    
-    Write-Host "  [ERROR] Failed to install GitHub CLI" -ForegroundColor Red
-    Write-Host "  Please install manually: winget install GitHub.cli" -ForegroundColor Yellow
-    return $false
-}
-
-function Test-GitHubAuth {
-    $result = gh auth status 2>&1
-    return $LASTEXITCODE -eq 0
-}
-
-function Invoke-GitHubAuth {
-    Write-Host ""
-    Write-Host "  GitHub authentication required for private apps." -ForegroundColor Yellow
-    Write-Host "  A browser window will open for login." -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  Press Enter to open GitHub login..." -ForegroundColor Cyan
-    $null = Read-Host
-    
-    gh auth login --web -h github.com -p https
-    
-    if (Test-GitHubAuth) {
-        Write-Host "  [OK] GitHub authenticated" -ForegroundColor Green
-        return $true
-    }
-    
-    Write-Host "  [ERROR] GitHub authentication failed" -ForegroundColor Red
-    return $false
-}
-
-function Get-PrivateFile {
-    param([string]$Repo, [string]$Path)
-    
-    $content = gh api "repos/$Repo/contents/$Path" --jq '.content' 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        return $null
-    }
-    
-    return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($content))
-}
-
-function Install-App {
-    param([string]$AppName, [hashtable]$AppInfo)
-
-    Write-Host ""
-    Write-Host "  Installing $AppName..." -ForegroundColor Cyan
-    Write-Host "  $($AppInfo.Description)" -ForegroundColor Gray
-    Write-Host ""
-
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    } catch { }
-
-    if ($AppInfo.Private) {
-        # Private app: auth → download manifest → download GUI → launch
-        if (-not (Test-GitHubAuth)) {
-            if (-not (Invoke-GitHubAuth)) {
-                return $false
+        else {
+            Install-UV
+            if (-not (Test-CommandExists "uv")) {
+                Write-Host "  uv installation failed. Falling back to Tier 2." -ForegroundColor Yellow
+                $tier = "remote"
             }
         }
-
-        # Download manifest from private repo
-        Write-Host "  Fetching app manifest..." -ForegroundColor Gray
-        $manifestJson = Get-PrivateFile -Repo $AppInfo.Repo -Path $AppInfo.ManifestPath
-
-        if (-not $manifestJson) {
-            Write-Host "  [ERROR] Failed to fetch manifest from $($AppInfo.Repo)" -ForegroundColor Red
-            return $false
-        }
-
-        $manifest = $manifestJson | ConvertFrom-Json
-        Write-Host "  [OK] $($manifest.name) v$($manifest.version)" -ForegroundColor Green
-
-        # Download GUI installer from public installer repo
-        Write-Host "  Downloading installer GUI..." -ForegroundColor Gray
-
-        try {
-            $guiContent = Invoke-RestMethod $GuiInstallerUrl -ErrorAction Stop
-        } catch {
-            Write-Host "  [ERROR] Failed to download GUI installer" -ForegroundColor Red
-            Write-Host "  $_" -ForegroundColor DarkGray
-            return $false
-        }
-
-        $guiPath = Join-Path $env:TEMP "Install-GUI.ps1"
-        Set-Content -Path $guiPath -Value $guiContent -Encoding UTF8
-        Write-Host "  [OK] Ready" -ForegroundColor Green
-
-        # Launch GUI with manifest and repo
-        Write-Host ""
-        Write-Host "  Launching installer..." -ForegroundColor Cyan
-        Write-Host ""
-        & $guiPath -Manifest $manifest -Repo $AppInfo.Repo
-
-    } else {
-        # Public app - direct download and run
-        Write-Host "  Downloading installer..." -ForegroundColor Gray
-
-        $url = "https://raw.githubusercontent.com/$($AppInfo.Repo)/main/$($AppInfo.Installer)"
-
-        try {
-            $installer = Invoke-RestMethod $url -ErrorAction Stop
-        } catch {
-            Write-Host "  [ERROR] Failed to download installer from:" -ForegroundColor Red
-            Write-Host "  $url" -ForegroundColor DarkGray
-            Write-Host "  $_" -ForegroundColor DarkGray
-            return $false
-        }
-
-        $tempPath = Join-Path $env:TEMP "Install-$AppName.ps1"
-        Set-Content -Path $tempPath -Value $installer -Encoding UTF8
-        Write-Host "  [OK] Downloaded" -ForegroundColor Green
-        Write-Host ""
-        & $tempPath
     }
 
-    return $true
+    return $tier
 }
 
-# Main
-Write-Banner
+function Install-UV {
+    Write-Step "Installing uv..." "..."
+    try {
+        if ($IsWindows) {
+            Invoke-Expression "& { $(Invoke-RestMethod 'https://astral.sh/uv/install.ps1') }"
+        }
+        else {
+            $installer = Invoke-RestMethod "https://astral.sh/uv/install.sh"
+            $installer | & sh
+        }
 
-# Show app selection menu
-$selectedApp = Show-AppMenu
+        # Refresh PATH
+        if ($IsWindows) {
+            $env:PATH = [Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('PATH', 'User')
+        }
+        else {
+            $env:PATH = "$HOME/.local/bin:$env:PATH"
+        }
 
-if (-not $selectedApp) {
-    Write-Host "  Goodbye!" -ForegroundColor Gray
-    exit 0
-}
-
-# Ensure gh CLI for private apps
-if ($Apps[$selectedApp].Private) {
-    if (-not (Install-GitHubCLI)) {
-        Write-Host ""
-        Write-Host "  Press any key to exit..." -ForegroundColor Gray
-        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-        exit 1
+        Write-Step "uv installed" "OK"
+    }
+    catch {
+        Write-Step "Failed to install uv: $_" "FAIL"
+        Write-Host "  Visit https://docs.astral.sh/uv/ for manual installation." -ForegroundColor DarkGray
     }
 }
 
-# Install the app
-$success = Install-App -AppName $selectedApp -AppInfo $Apps[$selectedApp]
+# ─── Step 3: Authentication ────────────────────────────────────────────────
 
-if ($success) {
-    # App installer handles its own completion message
+function Get-Authentication {
+    Write-Header "Authentication"
+
+    Write-Host ""
+    Write-Host "  Opening Jules.Solutions in your browser..." -ForegroundColor White
+    Write-Host "  Sign up or log in, then copy your API key from the dashboard." -ForegroundColor DarkGray
+    Write-Host ""
+
+    $authUrl = $Script:Config.AuthURL
+
+    try {
+        switch (Get-OSName) {
+            "windows" { Start-Process $authUrl }
+            "macos"   { & open $authUrl }
+            "linux"   { & xdg-open $authUrl 2>$null }
+        }
+        Write-Step "Browser opened: $authUrl" "OK"
+    }
+    catch {
+        Write-Step "Could not open browser. Visit manually:" "SKIP"
+        Write-Host "  $authUrl" -ForegroundColor Cyan
+    }
+
+    Write-Host ""
+    Write-Host "  After logging in:" -ForegroundColor White
+    Write-Host "    1. Go to the API Keys section" -ForegroundColor DarkGray
+    Write-Host "    2. Create a new key (or copy an existing one)" -ForegroundColor DarkGray
+    Write-Host "    3. It starts with 'dck_'" -ForegroundColor DarkGray
+    Write-Host ""
+
+    do {
+        $apiKey = (Read-Host "  Paste your API key (dck_...)").Trim()
+        if (-not $apiKey.StartsWith("dck_")) {
+            Write-Host "  Key must start with 'dck_'. Try again." -ForegroundColor Red
+        }
+    } while (-not $apiKey.StartsWith("dck_"))
+
+    # Verify
+    Write-Step "Verifying API key..." "..."
+    try {
+        $headers = @{ "X-API-Key" = $apiKey }
+        $response = Invoke-RestMethod -Uri "$($Script:Config.ApiURL)/health" -Headers $headers -TimeoutSec 10
+        if ($response.status -in @("healthy", "ok")) {
+            Write-Step "API key verified — connected to $($response.service)" "OK"
+        }
+        else {
+            Write-Step "API responded with status: $($response.status)" "SKIP"
+        }
+    }
+    catch {
+        Write-Step "Could not verify key — continuing anyway" "SKIP"
+    }
+
+    return $apiKey
+}
+
+# ─── Step 4: Configure MCP ─────────────────────────────────────────────────
+
+function Set-McpConfig {
+    param([string]$ApiKey)
+
+    Write-Header "MCP Configuration"
+
+    $mcpPath = $Script:Config.McpJsonPath
+
+    # Build new entry
+    $julesServer = @{
+        url     = $Script:Config.McpURL
+        headers = @{ "X-API-Key" = $ApiKey }
+    }
+
+    # Read existing or create new
+    $mcpConfig = @{ mcpServers = @{} }
+    if (Test-Path $mcpPath) {
+        try {
+            $existing = Get-Content $mcpPath -Raw | ConvertFrom-Json -AsHashtable
+            if ($existing -and $existing.ContainsKey("mcpServers")) {
+                $mcpConfig = $existing
+            }
+            Write-Step "Found existing $mcpPath — merging" "OK"
+        }
+        catch {
+            Write-Step "Existing file invalid — creating new" "SKIP"
+        }
+    }
+
+    $mcpConfig.mcpServers["jules"] = $julesServer
+
+    # Write
+    $json = $mcpConfig | ConvertTo-Json -Depth 10
+    Set-Content -Path $mcpPath -Value $json -Encoding UTF8
+    Write-Step "Written: $mcpPath" "OK"
+    Write-Host "    Server: $($Script:Config.McpURL)" -ForegroundColor DarkGray
+}
+
+# ─── Step 5: Install jules-local (Tier 1) ──────────────────────────────────
+
+function Install-JulesLocal {
+    Write-Header "Installing jules-local"
+
+    Write-Step "Installing from GitHub via uv..." "..."
+    try {
+        $output = & uv tool install "git+$($Script:Config.LocalRepo)" 2>&1
+        $output | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Step "jules-local installed" "OK"
+            return $true
+        }
+        else {
+            Write-Step "Install returned non-zero exit code" "FAIL"
+            Write-Host "  Manual install: uv tool install git+$($Script:Config.LocalRepo)" -ForegroundColor DarkGray
+            return $false
+        }
+    }
+    catch {
+        Write-Step "Failed: $_" "FAIL"
+        Write-Host "  Manual install: uv tool install git+$($Script:Config.LocalRepo)" -ForegroundColor DarkGray
+        return $false
+    }
+}
+
+# ─── Step 6: Configure jules-local (Tier 1) ───────────────────────────────
+
+function Set-LocalConfig {
+    param([string]$ApiKey)
+
+    Write-Header "Local Configuration"
+
+    $configDir  = $Script:Config.ConfigDir
+    $configPath = Join-Path $configDir "config.toml"
+
+    if (-not (Test-Path $configDir)) {
+        New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+    }
+
+    $content = @"
+# Jules.Solutions local configuration
+# Generated by installer v$($Script:Config.Version) on $(Get-Date -Format "yyyy-MM-dd")
+
+[auth]
+api_key = "$ApiKey"
+api_url = "$($Script:Config.ApiURL)"
+
+[local]
+vault_path = ""  # Set to your vault directory
+"@
+
+    if (Test-Path $configPath) {
+        Write-Step "Config already exists: $configPath" "SKIP"
+        $overwrite = Read-Host "  Overwrite? [y/N]"
+        if ($overwrite -ne "y" -and $overwrite -ne "Y") {
+            Write-Step "Kept existing config" "SKIP"
+            return
+        }
+    }
+
+    Set-Content -Path $configPath -Value $content -Encoding UTF8
+    Write-Step "Written: $configPath" "OK"
+}
+
+# ─── Step 7: Verification ──────────────────────────────────────────────────
+
+function Test-Installation {
+    param([string]$Tier, [string]$ApiKey)
+
+    Write-Header "Verification"
+
+    $pass = $true
+
+    # API
+    try {
+        $r = Invoke-RestMethod -Uri "$($Script:Config.ApiURL)/health" -Headers @{ "X-API-Key" = $ApiKey } -TimeoutSec 10
+        Write-Step "API: $($r.status)" "OK"
+    }
+    catch {
+        Write-Step "API: unreachable" "FAIL"
+        $pass = $false
+    }
+
+    # Auth
+    try {
+        $r = Invoke-RestMethod -Uri "$($Script:Config.AuthURL)/api/auth/ok" -TimeoutSec 10
+        Write-Step "Auth: $(if ($r.ok) { 'healthy' } else { 'unknown' })" "OK"
+    }
+    catch {
+        Write-Step "Auth: unreachable" "FAIL"
+        $pass = $false
+    }
+
+    # MCP config
+    if (Test-Path $Script:Config.McpJsonPath) {
+        Write-Step "MCP config: exists" "OK"
+    }
+    else {
+        Write-Step "MCP config: missing" "FAIL"
+        $pass = $false
+    }
+
+    # Tier 1 extras
+    if ($Tier -eq "full") {
+        if (Test-CommandExists "jules") {
+            Write-Step "jules CLI: found" "OK"
+        }
+        else {
+            Write-Step "jules CLI: not in PATH (restart shell)" "SKIP"
+        }
+
+        $cfgPath = Join-Path $Script:Config.ConfigDir "config.toml"
+        if (Test-Path $cfgPath) {
+            Write-Step "Local config: exists" "OK"
+        }
+        else {
+            Write-Step "Local config: missing" "FAIL"
+            $pass = $false
+        }
+    }
+
+    return $pass
+}
+
+# ─── Step 8: Completion ────────────────────────────────────────────────────
+
+function Show-Completion {
+    param([string]$Tier, [bool]$AllGood)
+
+    Write-Host ""
+    if ($AllGood) {
+        Write-Host "  ╔═══════════════════════════════════════════════╗" -ForegroundColor Green
+        Write-Host "  ║          Setup Complete!                      ║" -ForegroundColor Green
+        Write-Host "  ╚═══════════════════════════════════════════════╝" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  ╔═══════════════════════════════════════════════╗" -ForegroundColor Yellow
+        Write-Host "  ║     Setup completed with warnings.            ║" -ForegroundColor Yellow
+        Write-Host "  ║     Review items marked [!] above.            ║" -ForegroundColor Yellow
+        Write-Host "  ╚═══════════════════════════════════════════════╝" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "  Next steps:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  1. Restart Claude Code (or your terminal)" -ForegroundColor Cyan
+    Write-Host "     The MCP server 'jules' will appear in your tools." -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  2. Try it:" -ForegroundColor Cyan
+    Write-Host '     claude> "Use the jules MCP tools to list my tasks"' -ForegroundColor DarkGray
+
+    if ($Tier -eq "full") {
+        Write-Host ""
+        Write-Host "  3. Start local server (optional):" -ForegroundColor Cyan
+        Write-Host "     jules serve --vault ~/your-vault" -ForegroundColor DarkGray
+    }
+
+    Write-Host ""
+    Write-Host "  Dashboard:  https://app.jules.solutions" -ForegroundColor DarkGray
+    Write-Host "  Docs:       https://jules.solutions/docs" -ForegroundColor DarkGray
+    Write-Host "  Support:    https://github.com/Jules-Solutions/installer/issues" -ForegroundColor DarkGray
     Write-Host ""
 }
+
+# ─── Main ───────────────────────────────────────────────────────────────────
+
+function Main {
+    Show-Banner
+
+    $detected = Get-Environment
+    $tier     = Select-Tier -Env $detected
+    $apiKey   = Get-Authentication
+
+    Set-McpConfig -ApiKey $apiKey
+
+    if ($tier -eq "full") {
+        $ok = Install-JulesLocal
+        if ($ok) { Set-LocalConfig -ApiKey $apiKey }
+    }
+
+    $allGood = Test-Installation -Tier $tier -ApiKey $apiKey
+    Show-Completion -Tier $tier -AllGood $allGood
+}
+
+Main
