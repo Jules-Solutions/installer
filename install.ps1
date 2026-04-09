@@ -366,37 +366,136 @@ function Set-McpConfig {
     Write-Host "    Server: $($Script:Config.McpURL)" -ForegroundColor DarkGray
 }
 
-# ─── Step 5: Install jules-local (Tier 1) ──────────────────────────────────
+# ─── Step 5: Vault Setup (Tier 1) ─────────────────────────────────────────
 
-function Install-JulesLocal {
-    Write-Header "Installing jules-local"
+function Get-VaultPath {
+    Write-Header "Vault Setup"
 
-    Write-Step "Installing from GitHub via uv..." "..."
-    try {
-        $output = & uv tool install "git+$($Script:Config.LocalRepo)" 2>&1
-        $output | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+    Write-Host ""
+    Write-Host "  Your vault is where everything lives — data, config, and the local runtime." -ForegroundColor White
+    Write-Host ""
+    Write-Host "  [1] I have an existing vault — point to it" -ForegroundColor Green
+    Write-Host "  [2] Create a new vault" -ForegroundColor Yellow
+    Write-Host ""
 
-        if ($LASTEXITCODE -eq 0) {
-            Write-Step "jules-local installed" "OK"
-            return $true
+    do {
+        $choice = Read-Host "  Select [1/2]"
+    } while ($choice -notin @("1", "2"))
+
+    if ($choice -eq "1") {
+        $vaultPath = (Read-Host "  Vault path (e.g., ~/Jules.Life or C:\Jules.Life)").Trim()
+
+        # Expand ~ on all platforms
+        if ($vaultPath.StartsWith("~")) {
+            $home = if ($IsWindows) { $env:USERPROFILE } else { $HOME }
+            $vaultPath = Join-Path $home $vaultPath.Substring(2)
+        }
+
+        if (-not (Test-Path $vaultPath)) {
+            Write-Step "Path does not exist: $vaultPath" "FAIL"
+            Write-Host "  Check the path and try again." -ForegroundColor Red
+            return $null
+        }
+
+        Write-Step "Using vault: $vaultPath" "OK"
+        return $vaultPath
+    }
+    else {
+        # Create new vault
+        $username = (Read-Host "  Your name (used for vault folder, e.g., Jules)").Trim()
+        if (-not $username) { $username = "User" }
+
+        $parentDir = if ($IsWindows) { "C:\" } else { $HOME }
+        $vaultPath = Join-Path $parentDir "$username.Life"
+
+        if (Test-Path $vaultPath) {
+            Write-Step "Vault already exists at $vaultPath" "OK"
         }
         else {
-            Write-Step "Install returned non-zero exit code" "FAIL"
-            Write-Host "  Manual install: uv tool install git+$($Script:Config.LocalRepo)" -ForegroundColor DarkGray
+            New-Item -ItemType Directory -Path $vaultPath -Force | Out-Null
+            Write-Step "Created vault: $vaultPath" "OK"
+        }
+
+        # Create basic vault structure
+        $dirs = @(".Life/src", ".Life/ontology", ".Life/pipelines", ".Life/templates", ".claude", "Inbox", "Areas")
+        foreach ($d in $dirs) {
+            $full = Join-Path $vaultPath $d
+            if (-not (Test-Path $full)) {
+                New-Item -ItemType Directory -Path $full -Force | Out-Null
+            }
+        }
+        Write-Step "Vault structure initialized" "OK"
+
+        return $vaultPath
+    }
+}
+
+# ─── Step 6: Install jules-local into vault (Tier 1) ─────────────────────
+
+function Install-JulesLocal {
+    param([string]$VaultPath)
+
+    Write-Header "Installing jules-local"
+
+    $localDir = Join-Path $VaultPath ".Life" "src" "jules-local"
+
+    if (Test-Path (Join-Path $localDir ".git")) {
+        Write-Step "jules-local already exists — pulling latest..." "..."
+        try {
+            Push-Location $localDir
+            & git pull --quiet 2>&1 | Out-Null
+            Pop-Location
+            Write-Step "Updated: $localDir" "OK"
+        }
+        catch {
+            Pop-Location
+            Write-Step "Pull failed: $_" "FAIL"
+        }
+    }
+    else {
+        Write-Step "Cloning into vault..." "..."
+        try {
+            $output = & git clone $Script:Config.LocalRepo $localDir 2>&1
+            $output | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+            Write-Step "Cloned: $localDir" "OK"
+        }
+        catch {
+            Write-Step "Clone failed: $_" "FAIL"
+            Write-Host "  Manual: git clone $($Script:Config.LocalRepo) $localDir" -ForegroundColor DarkGray
+            return $false
+        }
+    }
+
+    # Install dependencies
+    Write-Step "Installing dependencies (uv sync)..." "..."
+    try {
+        Push-Location $localDir
+        $output = & uv sync 2>&1
+        $output | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+        Pop-Location
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Step "Dependencies installed" "OK"
+        }
+        else {
+            Pop-Location
+            Write-Step "uv sync failed" "FAIL"
             return $false
         }
     }
     catch {
+        Pop-Location
         Write-Step "Failed: $_" "FAIL"
-        Write-Host "  Manual install: uv tool install git+$($Script:Config.LocalRepo)" -ForegroundColor DarkGray
         return $false
     }
+
+    return $true
 }
 
-# ─── Step 6: Configure jules-local (Tier 1) ───────────────────────────────
+# ─── Step 7: Configure jules-local (Tier 1) ──────────────────────────────
 
 function Set-LocalConfig {
-    param([string]$ApiKey)
+    param([string]$ApiKey, [string]$VaultPath)
 
     Write-Header "Local Configuration"
 
@@ -407,6 +506,8 @@ function Set-LocalConfig {
         New-Item -ItemType Directory -Path $configDir -Force | Out-Null
     }
 
+    $localDir = Join-Path $VaultPath ".Life" "src" "jules-local"
+
     $content = @"
 # Jules.Solutions local configuration
 # Generated by installer v$($Script:Config.Version) on $(Get-Date -Format "yyyy-MM-dd")
@@ -416,7 +517,8 @@ api_key = "$ApiKey"
 api_url = "$($Script:Config.ApiURL)"
 
 [local]
-vault_path = ""  # Set to your vault directory
+vault_path = "$($VaultPath -replace '\\', '/')"
+jules_local_path = "$($localDir -replace '\\', '/')"
 "@
 
     if (Test-Path $configPath) {
@@ -432,10 +534,10 @@ vault_path = ""  # Set to your vault directory
     Write-Step "Written: $configPath" "OK"
 }
 
-# ─── Step 7: Verification ──────────────────────────────────────────────────
+# ─── Step 8: Verification ──────────────────────────────────────────────────
 
 function Test-Installation {
-    param([string]$Tier, [string]$ApiKey)
+    param([string]$Tier, [string]$ApiKey, [string]$VaultPath)
 
     Write-Header "Verification"
 
@@ -471,14 +573,27 @@ function Test-Installation {
     }
 
     # Tier 1 extras
-    if ($Tier -eq "full") {
-        if (Test-CommandExists "jules") {
-            Write-Step "jules CLI: found" "OK"
+    if ($Tier -eq "full" -and $VaultPath) {
+        # Vault exists
+        if (Test-Path $VaultPath) {
+            Write-Step "Vault: $VaultPath" "OK"
         }
         else {
-            Write-Step "jules CLI: not in PATH (restart shell)" "SKIP"
+            Write-Step "Vault: not found" "FAIL"
+            $pass = $false
         }
 
+        # jules-local installed in vault
+        $localDir = Join-Path $VaultPath ".Life" "src" "jules-local"
+        if (Test-Path (Join-Path $localDir "pyproject.toml")) {
+            Write-Step "jules-local: installed in vault" "OK"
+        }
+        else {
+            Write-Step "jules-local: not found in vault" "FAIL"
+            $pass = $false
+        }
+
+        # Config file
         $cfgPath = Join-Path $Script:Config.ConfigDir "config.toml"
         if (Test-Path $cfgPath) {
             Write-Step "Local config: exists" "OK"
@@ -522,7 +637,7 @@ function Show-Completion {
     if ($Tier -eq "full") {
         Write-Host ""
         Write-Host "  3. Start local server (optional):" -ForegroundColor Cyan
-        Write-Host "     jules serve --vault ~/your-vault" -ForegroundColor DarkGray
+        Write-Host "     cd $($Script:VaultPath)/.Life/src/jules-local && uv run jules serve" -ForegroundColor DarkGray
     }
 
     Write-Host ""
@@ -541,14 +656,27 @@ function Main {
     $tier     = Select-Tier -Env $detected
     $apiKey   = Get-Authentication
 
+    # MCP config first — works for both tiers, no vault needed
     Set-McpConfig -ApiKey $apiKey
 
+    $Script:VaultPath = $null
+
     if ($tier -eq "full") {
-        $ok = Install-JulesLocal
-        if ($ok) { Set-LocalConfig -ApiKey $apiKey }
+        # Vault setup — need this before installing jules-local
+        $Script:VaultPath = Get-VaultPath
+        if (-not $Script:VaultPath) {
+            Write-Step "Vault setup skipped — falling back to remote only" "SKIP"
+            $tier = "remote"
+        }
+        else {
+            $ok = Install-JulesLocal -VaultPath $Script:VaultPath
+            if ($ok) {
+                Set-LocalConfig -ApiKey $apiKey -VaultPath $Script:VaultPath
+            }
+        }
     }
 
-    $allGood = Test-Installation -Tier $tier -ApiKey $apiKey
+    $allGood = Test-Installation -Tier $tier -ApiKey $apiKey -VaultPath $Script:VaultPath
     Show-Completion -Tier $tier -AllGood $allGood
 }
 
